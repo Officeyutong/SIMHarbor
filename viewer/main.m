@@ -1,4 +1,6 @@
 #import "AboutVC.h"
+#import "ErrorDetailsVC.h"
+#import "ErrorDiagnostics.h"
 #import "FirmwareReportVC.h"
 #import "DocumentsVC.h"
 #import "TraceLog.h"
@@ -814,8 +816,10 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
                 [[SHTraceLog shared] error:e];
             else
                 Record(success);
-            [self message:e ? SHL(@"Operation incomplete") : success
-                   detail:e ? e.localizedDescription : (warning ?: SHL(@"Operation completed."))];
+            if (e)
+                [SHErrorDetailsVC showError:e from:self];
+            else
+                [self message:success detail:warning ?: SHL(@"Operation completed.")];
             [self refreshCard];
         });
     }];
@@ -1075,7 +1079,13 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
     about.tabBarItem = [[UITabBarItem alloc] initWithTitle:SHL(@"About")
                                                      image:[UIImage systemImageNamed:@"info.circle"]
                                                        tag:3];
-    tabs.viewControllers = @[ cards, logs, documents, about ];
+    UINavigationController *errors =
+        [[UINavigationController alloc] initWithRootViewController:[SHErrorDetailsVC new]];
+    errors.tabBarItem =
+        [[UITabBarItem alloc] initWithTitle:SHL(@"Error details")
+                                      image:[UIImage systemImageNamed:@"exclamationmark.bubble"]
+                                        tag:4];
+    tabs.viewControllers = @[ cards, logs, documents, about, errors ];
     tabs.tabBar.tintColor = Accent();
     self.window.rootViewController = tabs;
     [self.window makeKeyAndVisible];
@@ -1325,6 +1335,10 @@ static int SHDiagnose(int argc, char **argv) {
     }
 }
 int main(int argc, char *argv[]) {
+    if (argc > 1 && strcmp(argv[1], "--error-check") == 0) {
+        extern int SHErrorDiagnosticsCheck(void);
+        return SHErrorDiagnosticsCheck();
+    }
     if (argc > 1 && strcmp(argv[1], "--allow-network") == 0) {
         @autoreleasepool {
             NSError *e = nil;

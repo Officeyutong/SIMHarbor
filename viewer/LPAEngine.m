@@ -1,4 +1,5 @@
 #import "TraceLog.h"
+#import "ErrorDiagnostics.h"
 #import "SignalCodec.h"
 #import <euicc/euicc.private.h>
 #import "Localization.h"
@@ -62,6 +63,9 @@
 
 @interface SHLPA ()
 @property(nonatomic, strong) NSError *transportError;
+@property(nonatomic, copy) NSDictionary *lastHTTPDiagnostic;
+@property(nonatomic, copy) NSDictionary *lastAPDUDiagnostic;
+@property(nonatomic, copy) NSDictionary *installationDiagnostic;
 @property(nonatomic) BOOL customSession;
 @property(nonatomic) NSUInteger customCalls;
 @property(nonatomic) NSUInteger customBytes;
@@ -100,6 +104,17 @@ static int transmitCard(struct euicc_ctx *c, uint8_t **rx, uint32_t *rn, const u
           error:&e];
     owner(c).transportError = e;
     NSData *d = SHUnhex(r[@"hex"]);
+    NSMutableDictionary *diagnostic = [NSMutableDictionary dictionary];
+    if (tn >= 4)
+        diagnostic[@"commandHeader"] = SHHex([NSData dataWithBytes:tx length:4]);
+    if (d.length >= 2) {
+        diagnostic[@"statusWord"] = SHHex([d subdataWithRange:NSMakeRange(d.length - 2, 2)]);
+        diagnostic[@"responseHex"] =
+            SHHex([d subdataWithRange:NSMakeRange(0, MIN(d.length, (NSUInteger)8192))]);
+        diagnostic[@"responseBytes"] = @(d.length);
+        diagnostic[@"truncated"] = @(d.length > 8192);
+    }
+    o.lastAPDUDiagnostic = diagnostic;
     if (d.length < 2)
         return -1;
     if (o.customSession && (o.customBytes += d.length) > 1024 * 1024) {
@@ -119,6 +134,8 @@ static int httpTransmit(struct euicc_ctx *c, const char *url, uint32_t *status, 
         SHLPA *o = owner(c);
         NSString *trace = NSUUID.UUID.UUIDString;
         NSURL *u = [NSURL URLWithString:@(url)];
+        o.lastHTTPDiagnostic =
+            @{@"requestId" : trace, @"url" : u.absoluteString ?: @"", @"method" : @"POST"};
         if (![u.scheme.lowercaseString isEqual:@"https"] || !u.host.length || u.user || u.password)
             return -1;
         NSMutableURLRequest *req =
@@ -185,6 +202,31 @@ static int httpTransmit(struct euicc_ctx *c, const char *url, uint32_t *status, 
         if (timed)
             [task cancel];
         [session finishTasksAndInvalidate];
+        NSMutableDictionary *httpDiagnostic = [o.lastHTTPDiagnostic mutableCopy];
+        httpDiagnostic[@"status"] = @(response.statusCode);
+        NSDictionary *json = body.length && body.length <= 512 * 1024
+                                 ? [NSJSONSerialization JSONObjectWithData:body options:0 error:nil]
+                                 : nil;
+        NSDictionary *header = [json isKindOfClass:NSDictionary.class] &&
+                                       [json[@"header"] isKindOfClass:NSDictionary.class]
+                                   ? json[@"header"]
+                                   : nil;
+        NSDictionary *execution =
+            [header[@"functionExecutionStatus"] isKindOfClass:NSDictionary.class]
+                ? header[@"functionExecutionStatus"]
+                : nil;
+        if (execution)
+            httpDiagnostic[@"functionExecutionStatus"] = execution;
+        NSString *executionStatus =
+            [execution[@"status"] isKindOfClass:NSString.class] ? execution[@"status"] : nil;
+        if (response.statusCode >= 400 ||
+            (executionStatus && ![executionStatus isEqual:@"Executed-Success"])) {
+            NSData *limited =
+                [body subdataWithRange:NSMakeRange(0, MIN(body.length, (NSUInteger)65536))];
+            httpDiagnostic[@"responseBody"] = [[NSString alloc] initWithData:limited encoding:NSUTF8StringEncoding] ?: [limited base64EncodedStringWithOptions:0] ?: @"";
+            httpDiagnostic[@"responseTruncated"] = @(body.length > 65536);
+        }
+        o.lastHTTPDiagnostic = httpDiagnostic;
         [[SHTraceLog shared]
             event:[NSString stringWithFormat:@"HTTP RX id=%@ status=%ld headers=%@", trace,
                                              (long)response.statusCode,
@@ -200,15 +242,14 @@ static int httpTransmit(struct euicc_ctx *c, const char *url, uint32_t *status, 
                     ? @"No network access. Check your connection and allow SIMHarbor wireless data in Settings."
                     : (err.localizedDescription
                            ?: @"Server request timed out or the response was too large.");
-            o.transportError =
-                [NSError errorWithDomain:@"SIMHarbor"
-                                    code:2
-                                userInfo:@{
-                                    NSLocalizedDescriptionKey : SHL(message),
-                                    @"SHErrorEnglish" : err
-                                        ? @"HTTP transport failed."
+            NSMutableDictionary *info = [@{
+                NSLocalizedDescriptionKey : SHL(message),
+                @"SHErrorEnglish" : err ? @"HTTP transport failed."
                                         : @"Server request timed out or the response was too large."
-                                }];
+            } mutableCopy];
+            if (err)
+                info[NSUnderlyingErrorKey] = err;
+            o.transportError = [NSError errorWithDomain:@"SIMHarbor" code:2 userInfo:info];
             return -1;
         }
         *status = (uint32_t)response.statusCode;
@@ -248,6 +289,9 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
     ctx->apdu.interface = &apdu;
     ctx->http.interface = &http;
     self.transportError = nil;
+    self.lastHTTPDiagnostic = nil;
+    self.lastAPDUDiagnostic = nil;
+    self.installationDiagnostic = nil;
     self.lastWarning = nil;
     [self stage:@"Connecting to the removable card…"];
     if (euicc_init(ctx)) {
@@ -268,18 +312,24 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
     return YES;
 }
 - (void)failure:(NSString *)stage ctx:(struct euicc_ctx *)ctx error:(NSError **)e {
-    if (!e)
-        return;
     [[SHTraceLog shared] event:[@"LPA ERROR " stringByAppendingString:stage]];
-    NSString *detail = ctx->http.status.message[0] ? @(ctx->http.status.message) : @"";
-    *e = self.transportError
-             ?: [NSError errorWithDomain:@"SIMHarbor"
-                                    code:1
-                                userInfo:@{
-                                    NSLocalizedDescriptionKey : detail.length
-                                        ? [NSString stringWithFormat:@"%@: %@", SHL(stage), detail]
-                                        : SHL(stage)
-                                }];
+    NSMutableDictionary *details = [NSMutableDictionary dictionary];
+    details[@"es9p"] = @{
+        @"subjectCode" : [NSString stringWithUTF8String:ctx->http.status.subjectCode] ?: @"",
+        @"reasonCode" : [NSString stringWithUTF8String:ctx->http.status.reasonCode] ?: @"",
+        @"subjectIdentifier" : [NSString stringWithUTF8String:ctx->http.status.subjectIdentifier]
+            ?: @"",
+        @"message" : [NSString stringWithUTF8String:ctx->http.status.message] ?: @""
+    };
+    if (self.lastHTTPDiagnostic)
+        details[@"http"] = self.lastHTTPDiagnostic;
+    if (self.lastAPDUDiagnostic)
+        details[@"apdu"] = self.lastAPDUDiagnostic;
+    if (self.installationDiagnostic)
+        details[@"es10b"] = self.installationDiagnostic;
+    NSError *failure = SHDiagnosticError(stage, details, self.transportError);
+    if (e)
+        *e = failure;
 }
 - (BOOL)allowOwnNetworking:(NSError **)e {
     void *h = dlopen("/System/Library/Frameworks/CoreTelephony.framework/CoreTelephony", RTLD_LAZY);
@@ -500,6 +550,11 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
         }
         [self stage:@"Installing the profile. Keep the app in the foreground…"];
         if (es10b_load_bound_profile_package(&c, &result)) {
+            self.installationDiagnostic = @{
+                @"errorReason" : @(result.errorReason),
+                @"bppCommandId" : @(result.bppCommandId),
+                @"sequenceNumber" : @(result.seqNumber)
+            };
             failed = @"Profile installation failed";
             return NO;
         }

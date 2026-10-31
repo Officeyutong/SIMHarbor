@@ -4,7 +4,7 @@
 
 SIMHarbor (芯舟) is a native app and CommCenter extension for managing removable eUICC cards on jailbroken iPhones. Developed by [officeyutong](https://github.com/officeyutong).
 
-Features include profile listing, downloading, enabling/disabling, renaming, deletion, notification management, camera and image QR scanning, continuous and tap-to-focus, English and Chinese interfaces, an offline user guide, and a raw APDU/DER console. Normal use requires neither a computer nor Frida server.
+Features include profile listing, downloading, enabling/disabling, renaming, deletion, notification management, camera and image QR scanning, continuous and tap-to-focus, English and Chinese interfaces, an offline user guide, a raw APDU/DER console, and an Error details tab that opens automatically for failed profile operations. Duplicate installs and other recognized failures have actionable messages; the details retain protocol diagnostics and support copying and clearing. Normal use requires neither a computer nor Frida server.
 
 The currently verified private ABI targets iPhone 13 / iOS 17.2.1 (21C66), with roothide. Addresses, fields, and live objects are resolved at runtime. Unapproved image UUID pairs provide diagnostics only and cannot operate on the card. Other firmware requires validation; removing the ABI gate is insufficient. The About page shows the installed version, build number, and open-source licenses.
 
@@ -38,9 +38,11 @@ GitHub Actions workflow: `.github/workflows/build.yml`.
 
 Releases require all three variants to succeed. Assets include `SIMHarbor_VERSION_rootful.deb`, `SIMHarbor_VERSION_rootless.deb`, `SIMHarbor_VERSION_roothide.deb`, a combined `SHA256SUMS`, and per-scheme build metadata.
 
-To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.11 (build 1311). See the [release notes](docs/RELEASES.md).
+To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.12 (build 1312). See the [release notes](docs/RELEASES.md).
 
 ## Tests and validation scope
+
+On an authorized device, the installed executable's `--error-check` mode replays bilingual error fixtures, including an existing ICCID, insufficient space, an unspecified failure and an underlying network timeout. It checks that diagnostic snapshots survive later state replacement; it sends no card or network requests.
 
 Local checks cover bilingual documentation and privacy, codecs, malformed inputs, real libeuicc mock-card flows, ASan/UBSan, and the CI release policy against real Git histories. See the [validation notes](docs/VALIDATION.md) for the scope of read-only device checks and full write tests. CI does not connect to a phone, download a real profile, or switch profiles.
 

@@ -266,3 +266,17 @@
 "Live QR recognition failed. Try again or choose an image." = "Live QR recognition failed. Try again or choose an image.";
 
 "Unable to load the user guide." = "Unable to load the user guide.";
+
+"Error details" = "Error details";
+"No errors recorded in this session." = "No errors recorded in this session.";
+"Check Error details for the exact response and error codes." = "Check Error details for the exact response and error codes.";
+"The operation could not be completed. Check Error details for diagnostic information." = "The operation could not be completed. Check Error details for diagnostic information.";
+"This eSIM profile is already installed on the card. Use the existing profile in the profile list." = "This eSIM profile is already installed on the card. Use the existing profile in the profile list.";
+"The card does not have enough free space. Delete an unused profile and try again." = "The card does not have enough free space. Delete an unused profile and try again.";
+"Installation was interrupted. Refresh the profile list before trying again." = "Installation was interrupted. Refresh the profile list before trying again.";
+"The card rejected the profile signature. Contact your operator." = "The card rejected the profile signature. Contact your operator.";
+"The download session is no longer valid. Start a new download." = "The download session is no longer valid. Start a new download.";
+"Card policy does not allow this profile to be installed." = "Card policy does not allow this profile to be installed.";
+"The operator rejected this activation code. It may already be used or no longer valid." = "The operator rejected this activation code. It may already be used or no longer valid.";
+"The operator rejected the confirmation code. Check it before trying again." = "The operator rejected the confirmation code. Check it before trying again.";
+"HTTP transport failed." = "HTTP transport failed.";

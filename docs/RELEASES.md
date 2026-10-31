@@ -1,5 +1,21 @@
 # Release notes / 版本记录
 
+## 1.3.12 — build 1312
+
+### English
+
+- Interpret the eUICC installation result instead of displaying a stale HTTP `unknown` message. An existing ICCID (ES10b reason 9) now explains that the profile is already installed and points to the existing profile. Also distinguish insufficient storage, interruption, signature/session/policy failures and selected operator rejections. Unspecified failures are not classified as duplicates.
+- Add a bilingual Error details tab. Failed profile operations select it automatically. Show a friendly explanation and copyable diagnostics: failure stage, error domain/code, ES10b result, ES9+ status, HTTP status/request identifier and available failure response, APDU status/response, and underlying network errors. Clear removes the latest error; it is retained in memory across tab and language changes until cleared or the process exits.
+- Snapshot diagnostics before cancellation and channel cleanup. Bound captured HTTP failure bodies to 64 KiB and APDU responses to 8 KiB, with truncation indicators. Do not add activation request bodies to this report.
+- All three packages build and pass package verification. Offline sanitizer/localization and formatting checks pass. On the roothide phone, `--error-check` passes bilingual fixture tests, snapshot retention and underlying-error reporting; UI fixture replay verifies automatic selection, readable duplicate-install guidance, raw diagnostic retention, copying and clearing. No real duplicate download was repeated for testing.
+
+### 简体中文
+
+- 读取 eUICC 安装结果，避免显示 HTTP 状态中遗留的 `unknown`。ICCID 已存在（ES10b 原因码 9）会提示配置已经安装，应使用现有配置；同时区分空间不足、中断、签名/会话/策略错误及部分运营商拒绝。原因不明时不会误判为重复安装。
+- 新增双语「错误详情」页签，配置操作失败后自动切换。展示友好说明及可复制的诊断：失败阶段、错误域/错误码、ES10b 安装结果、ES9+ 状态、HTTP 状态/请求标识和可用的失败响应、APDU 状态/响应及底层网络错误。「清空」移除最近错误；在切换页签或语言时保留，手动清空或进程退出后移除。
+- 取消会话和关闭通道前保存诊断快照。HTTP 失败响应最多保留 64 KiB，APDU 响应最多保留 8 KiB，超出时标明截断；不在此报告中加入激活请求正文。
+- 三种包均构建并通过包检查，离线 sanitizer/本地化及格式检查通过。roothide 真机 `--error-check` 通过双语样例、快照保留和底层错误测试；界面样例回放验证自动跳转、重复安装说明、原始诊断、复制和清空。测试没有重复下载真实卡片。
+
 ## 1.3.11 — build 1311
 
 ### English

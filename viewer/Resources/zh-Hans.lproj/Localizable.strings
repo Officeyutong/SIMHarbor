@@ -266,3 +266,17 @@
 "Live QR recognition failed. Try again or choose an image." = "实时二维码识别失败，请重试或选择图片识别。";
 
 "Unable to load the user guide." = "无法加载使用说明。";
+
+"Error details" = "错误详情";
+"No errors recorded in this session." = "本次运行尚未记录错误。";
+"Check Error details for the exact response and error codes." = "请在错误详情中查看具体响应和错误码。";
+"The operation could not be completed. Check Error details for diagnostic information." = "操作未能完成，请在错误详情中查看诊断信息。";
+"This eSIM profile is already installed on the card. Use the existing profile in the profile list." = "这张 eSIM 已安装在卡片上，请在卡片列表中使用现有配置。";
+"The card does not have enough free space. Delete an unused profile and try again." = "卡片剩余空间不足，请删除不再使用的配置后重试。";
+"Installation was interrupted. Refresh the profile list before trying again." = "安装已中断，请先刷新卡片列表，确认状态后再重试。";
+"The card rejected the profile signature. Contact your operator." = "卡片拒绝了配置签名，请联系运营商。";
+"The download session is no longer valid. Start a new download." = "下载会话已失效，请重新发起下载。";
+"Card policy does not allow this profile to be installed." = "卡片策略不允许安装此配置。";
+"The operator rejected this activation code. It may already be used or no longer valid." = "运营商拒绝了此激活码，它可能已被使用或已经失效。";
+"The operator rejected the confirmation code. Check it before trying again." = "运营商拒绝了确认码，请核对后再重试。";
+"HTTP transport failed." = "网络请求失败，请检查网络连接；错误详情中包含具体原因。";

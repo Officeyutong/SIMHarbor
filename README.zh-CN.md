@@ -38,9 +38,13 @@ GitHub Actions 文件：`.github/workflows/build.yml`。
 
 Release 要求三种构建全部成功，包含三个 `SIMHarbor_VERSION_方案.deb`、合并的 `SHA256SUMS` 以及各方案的构建信息。
 
-发布新版时修改 `VERSION`，并按需递增 `BUILD_NUMBER`。`control` 和 App 的 `Info.plist` 从 `packaging/` 模板自动生成，无需手动同步。源码版本目前为 1.3.11（构建号 1311），变更见[版本记录](docs/RELEASES.md)。
+发布新版时修改 `VERSION`，并按需递增 `BUILD_NUMBER`。`control` 和 App 的 `Info.plist` 从 `packaging/` 模板自动生成，无需手动同步。源码版本目前为 1.3.12（构建号 1312），变更见[版本记录](docs/RELEASES.md)。
 
 ## 测试与验证范围
+
+配置操作失败时自动切换到「错误详情」页签，显示友好说明、失败阶段、协议错误码和响应，支持复制与清空。重复安装会按明确的卡片错误码提示使用已有配置；原因不明时保留具体诊断，不误报为重复安装。详情保留到本次运行结束或手动清空。
+
+在授权设备上，可通过已安装可执行文件的 `--error-check` 模式回放双语错误样例，覆盖 ICCID 已存在、空间不足、原因不明及底层网络超时，并检查诊断快照不会被后续状态替换；此模式不发送卡片或网络请求。
 
 本地检查覆盖双语文档/隐私、编解码、异常输入、真实 libeuicc 模拟卡端流程、ASan/UBSan，以及真实 Git 历史下的 CI 发布策略。只读设备测试与完整写入测试的适用范围见 [验证记录](docs/VALIDATION.md)。CI 不连接手机，不下载或切换真实 profile。
 
