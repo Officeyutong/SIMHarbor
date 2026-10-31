@@ -261,5 +261,6 @@
 "Unable to focus. Tap to try again." = "暂时无法对焦，请轻点重试。";
 
 "User guide" = "使用说明";
+"Source repository" = "源码仓库";
 
 "Unable to load the user guide." = "无法加载使用说明。";

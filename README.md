@@ -17,23 +17,28 @@ bash ci/install_linux_deps.sh
 python3 ci/bootstrap.py
 python3 scripts/sync_version.py
 python3 tests/test_ci_policy.py
+python3 tests/test_fetch_gum.py
 python3 tests/check_offline.py
 bash build.sh
 ```
 
-The deb is written to `packages/`. Dependency sources, revisions, and checksums are recorded in `ci/dependencies.json` and `vendor/frida-gum/PROVENANCE.json`. Each build generates shared random IPC pairing material for its app and extension, then removes the generated header. Install the app and extension together from the same build.
+The default build produces a roothide deb in `packages/`. Set `SIMHARBOR_SCHEME=rootful`, `rootless`, or `roothide` to select a package. The same pinned roothide/Theos supports all three schemes, following the [roothide Developer README](https://github.com/roothide/Developer). See [package variants](docs/PACKAGING.md) for architectures, paths and verification commands. Packaging support does not approve additional firmware ABIs.
+
+Dependency sources, revisions, and checksums are recorded in `ci/dependencies.json` and `vendor/frida-gum/PROVENANCE.json`. Each build generates shared random IPC pairing material for its app and extension, then removes the generated header. Install the app and extension together from the same build.
 
 ## Automated builds and releases
 
 GitHub Actions workflow: `.github/workflows/build.yml`.
 
-- Every push, including all branches and tags, runs the build and uploads an artifact. Manual runs also upload artifacts. Successful builds include the deb and SHA256 checksum; failed builds upload available diagnostics.
+- Every push, including all branches and tags, builds rootful, rootless and roothide packages in independent matrix jobs, each uploading its own artifact. Manual runs do the same. Successful builds include the deb and its scheme-specific SHA256 checksum and build metadata; failed builds upload available diagnostics. A failing variant does not cancel the others.
 - A release tagged `vVERSION` is published only for a push to the default branch whose final `VERSION` differs from its value before that push. This also detects version changes followed by other commits within the same push.
 - Introducing `VERSION` in the initial default-branch push counts as a version change and creates the first release. Changes only to code, documentation, or `BUILD_NUMBER` do not publish a release.
 - Pushes to other branches, tag pushes, and manual runs do not publish releases. Existing releases are never overwritten. If the previous commit cannot be retrieved, the build and artifact upload proceed while publishing is disabled.
 - Build jobs have read-only repository permissions. Only the separate release job receives `contents: write`. No custom token is required. Enable Actions in the repository; repository or organization policies may still restrict publishing.
 
-To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.8 (build 1308). See the [release notes](docs/RELEASES.md).
+Releases require all three variants to succeed. Assets include `SIMHarbor_VERSION_rootful.deb`, `SIMHarbor_VERSION_rootless.deb`, `SIMHarbor_VERSION_roothide.deb`, a combined `SHA256SUMS`, and per-scheme build metadata.
+
+To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.10 (build 1310). See the [release notes](docs/RELEASES.md).
 
 ## Tests and validation scope
 
@@ -50,6 +55,10 @@ The app includes only its bilingual user guide. Technical articles remain in thi
 - [App–CommCenter IPC protocol](docs/IPC.md)
 - [Porting guide](docs/manual/en/porting.md)
 - [Validation scope](docs/VALIDATION.md)
+
+## Code formatting
+
+Project-owned native sources use clang-format 22 and `.clang-format`; Python uses Ruff 0.17.3 and `pyproject.toml`; shell scripts use shfmt 3.12.0. With these tools (or `uv` for Ruff) on `PATH`, run `python3 scripts/format_code.py` to format, or add `--check` to verify. The script preserves Logos `%ctor` syntax. Vendored dependencies retain upstream formatting.
 
 ## Source layout
 

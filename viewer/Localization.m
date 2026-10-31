@@ -1,7 +1,7 @@
 #import "Localization.h"
 NSString *SHLanguage(void) {
     NSString *language = [NSUserDefaults.standardUserDefaults stringForKey:@"SHLanguage"];
-    return [@[@"en", @"zh-Hans"] containsObject:language] ? language : @"system";
+    return [@[ @"en", @"zh-Hans" ] containsObject:language] ? language : @"system";
 }
 static NSBundle *LanguageBundle(NSString *language) {
     NSString *path = [NSBundle.mainBundle pathForResource:language ofType:@"lproj"];
@@ -16,17 +16,20 @@ NSString *SHResolvedLanguage(void) {
     return language;
 }
 NSString *SHL(NSString *key) {
-    if (!key) return @"";
+    if (!key)
+        return @"";
     return [LanguageBundle(SHResolvedLanguage()) localizedStringForKey:key value:key table:nil];
 }
 NSString *SHEnglish(NSString *text) {
     static NSDictionary *reverse;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        NSString *path = [LanguageBundle(@"zh-Hans") pathForResource:@"Localizable" ofType:@"strings"];
+        NSString *path = [LanguageBundle(@"zh-Hans") pathForResource:@"Localizable"
+                                                              ofType:@"strings"];
         NSDictionary *strings = path ? [NSDictionary dictionaryWithContentsOfFile:path] : nil;
         NSMutableDictionary *map = [NSMutableDictionary dictionary];
-        for (NSString *key in strings) map[strings[key]] = key;
+        for (NSString *key in strings)
+            map[strings[key]] = key;
         reverse = [map copy];
     });
     return reverse[text] ?: text ?: @"";
@@ -36,7 +39,10 @@ void SHSetLanguage(NSString *language) {
     [[NSNotificationCenter defaultCenter] postNotificationName:@"SHLanguageChanged" object:nil];
 }
 NSError *SHError(NSInteger code, NSString *english) {
-    return [NSError errorWithDomain:@"SIMHarbor" code:code userInfo:@{
-        NSLocalizedDescriptionKey: SHL(english), @"SHErrorEnglish": english ?: @"Operation failed"
-    }];
+    return [NSError errorWithDomain:@"SIMHarbor"
+                               code:code
+                           userInfo:@{
+                               NSLocalizedDescriptionKey : SHL(english),
+                               @"SHErrorEnglish" : english ?: @"Operation failed"
+                           }];
 }

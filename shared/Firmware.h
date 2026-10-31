@@ -9,12 +9,20 @@
 
 #ifdef __cplusplus
 #include <cstring>
-struct SHApprovedAbi {const char *commcenterUUID,*driverUUID;size_t sharedPtrBytes,functionBytes;};
-static constexpr SHApprovedAbi SHApprovedAbis[]={
- {SH_APPROVED_CC_UUID,SH_APPROVED_DRIVER_UUID,SH_APPROVED_SHARED_PTR_BYTES,SH_APPROVED_FUNCTION_BYTES},
+struct SHApprovedAbi {
+    const char *commcenterUUID, *driverUUID;
+    size_t sharedPtrBytes, functionBytes;
 };
-static inline bool SHApproveAbi(const char*cc,const char*driver,size_t shared,size_t function){
- for(const auto&entry:SHApprovedAbis)if(!strcmp(cc,entry.commcenterUUID)&&!strcmp(driver,entry.driverUUID)&&shared==entry.sharedPtrBytes&&function==entry.functionBytes)return true;
- return false;
+static constexpr SHApprovedAbi SHApprovedAbis[] = {
+    {SH_APPROVED_CC_UUID, SH_APPROVED_DRIVER_UUID, SH_APPROVED_SHARED_PTR_BYTES,
+     SH_APPROVED_FUNCTION_BYTES},
+};
+static inline bool SHApproveAbi(const char *cc, const char *driver, size_t shared,
+                                size_t function) {
+    for (const auto &entry : SHApprovedAbis)
+        if (!strcmp(cc, entry.commcenterUUID) && !strcmp(driver, entry.driverUUID) &&
+            shared == entry.sharedPtrBytes && function == entry.functionBytes)
+            return true;
+    return false;
 }
 #endif

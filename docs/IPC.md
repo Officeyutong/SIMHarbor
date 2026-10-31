@@ -2,7 +2,7 @@
 
 **English** | [简体中文](IPC.zh-CN.md)
 
-This document describes the implementation shipped in SIMHarbor 1.3.8. It is an internal protocol, without a negotiated protocol version. Sources: [app bridge](../viewer/Bridge.m), [extension](../tweak/Apdu.mm), [wire helpers](../shared/Wire.h), and [pairing generator](../scripts/generate_pairing_key.py).
+This document describes the protocol introduced in SIMHarbor 1.3.8 and unchanged through 1.3.10. It is an internal protocol, without a negotiated protocol version. Sources: [app bridge](../viewer/Bridge.m), [extension](../tweak/Apdu.mm), [wire helpers](../shared/Wire.h), and [pairing generator](../scripts/generate_pairing_key.py).
 
 ## Transport and ownership
 
@@ -92,4 +92,4 @@ These are socket/per-wait limits, not a total end-to-end deadline. The client us
 
 Check the English log for `IPC listener started`, `IPC peer authenticated`, listener startup/accept errors, and request/reply IDs. The 1.3.8 listener errors include the OS error text and number. Authentication rejection currently closes the socket without a detailed authentication log. A matching build and an injected, running extension are required even when the app remains in the foreground. APDU TX/RX logs are additional to IPC metadata; they contain card data and should be handled accordingly.
 
-The listener recovery changes have passed local Objective-C syntax checks. Recovery across real device background/foreground transitions remains to be verified on the new package.
+On the roothide phone, 1.3.10 passed startup, profile refresh and recovery after an injected `accept()` failure, preserving the profile baseline. Version 1.3.9 also passed returning to the foreground after 163 seconds in the background. This does not establish runtime compatibility for other jailbreak schemes or firmware.

@@ -1,4 +1,4 @@
-name: Build roothide deb
+name: Build jailbreak packages
 on:
   push:
   workflow_dispatch:
@@ -10,6 +10,10 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        scheme: [rootful, rootless, roothide]
     timeout-minutes: 45
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -43,18 +47,21 @@ jobs:
           python3 scripts/build_docs.py
           python3 scripts/check_public_tree.py
           python3 tests/test_ci_policy.py
+          python3 tests/test_fetch_gum.py
           python3 tests/check_offline.py 2>&1 | tee dist/offline-checks.log
       - name: Build deb
+        env:
+          SIMHARBOR_SCHEME: ${{ matrix.scheme }}
         run: bash build.sh 2>&1 | tee dist/build.log
       - name: Verify package and collect artifacts
-        run: python3 ci/collect_artifacts.py
+        run: python3 ci/collect_artifacts.py --scheme '${{ matrix.scheme }}'
       # No branch/path filter or cancellation group: every push gets its own run.
       # Failed builds still upload diagnostics; only successful builds contain a deb.
       - name: Upload artifacts for every push
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: SIMHarbor-${{ github.sha }}-${{ github.run_attempt }}
+          name: SIMHarbor-${{ github.sha }}-${{ github.run_attempt }}-${{ matrix.scheme }}
           path: dist/
           if-no-files-found: error
           retention-days: 30
@@ -70,7 +77,8 @@ jobs:
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: SIMHarbor-${{ github.sha }}-${{ github.run_attempt }}
+          pattern: SIMHarbor-${{ github.sha }}-${{ github.run_attempt }}-*
+          merge-multiple: true
           path: dist
       - name: Publish only a newly changed version
         env:
@@ -81,12 +89,17 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
+          for scheme in rootful rootless roothide; do
+            test -f "SIMHarbor_${VERSION}_${scheme}.deb"
+            test -f "SHA256SUMS_${scheme}.txt"
+          done
+          cat SHA256SUMS_*.txt > SHA256SUMS
           sha256sum --check SHA256SUMS
           tag="v$VERSION"
           if gh release view "$tag" --repo "$GH_REPO" >/dev/null 2>&1; then
             echo "Release $tag already exists; leaving it unchanged."
             exit 0
           fi
-          printf 'SIMHarbor %s\n\nCommit: %s\n\nLinux-built roothide package. Install the app and CommCenter extension together from this deb.\n' "$VERSION" "$COMMIT" > RELEASE_NOTES.md
-          gh release create "$tag" "SIMHarbor_${VERSION}_roothide.deb" SHA256SUMS build-info.json \
+          printf 'SIMHarbor %s\n\nCommit: %s\n\nPackages: rootful, rootless, roothide. Choose the package matching your jailbreak; install its app and CommCenter extension together. Firmware ABI approval is still required.\n' "$VERSION" "$COMMIT" > RELEASE_NOTES.md
+          gh release create "$tag" "SIMHarbor_${VERSION}_rootful.deb" "SIMHarbor_${VERSION}_rootless.deb" "SIMHarbor_${VERSION}_roothide.deb" SHA256SUMS build-info_*.json \
             --repo "$GH_REPO" --target "$COMMIT" --title "SIMHarbor $VERSION" --notes-file RELEASE_NOTES.md

@@ -17,23 +17,28 @@ bash ci/install_linux_deps.sh
 python3 ci/bootstrap.py
 python3 scripts/sync_version.py
 python3 tests/test_ci_policy.py
+python3 tests/test_fetch_gum.py
 python3 tests/check_offline.py
 bash build.sh
 ```
 
-deb 输出在 `packages/`。公开依赖的来源、提交号和校验值见 `ci/dependencies.json` 与 `vendor/frida-gum/PROVENANCE.json`。构建时为 App 和扩展生成同一份随机 IPC 配对材料，构建结束删除头文件；不要拆开安装来自不同构建的 App 和扩展。
+默认构建 roothide deb，输出在 `packages/`。通过 `SIMHARBOR_SCHEME=rootful`、`rootless` 或 `roothide` 选择方案。同一套固定版本 roothide/Theos 按 [roothide Developer README](https://github.com/roothide/Developer) 构建三种方案；架构、路径和校验命令见[安装包方案](docs/PACKAGING.md)。支持打包不代表已批准更多固件 ABI。
+
+公开依赖的来源、提交号和校验值见 `ci/dependencies.json` 与 `vendor/frida-gum/PROVENANCE.json`。构建时为 App 和扩展生成同一份随机 IPC 配对材料，构建结束删除头文件；不要拆开安装来自不同构建的 App 和扩展。
 
 ## 自动打包与发布
 
 GitHub Actions 文件：`.github/workflows/build.yml`。
 
-- 每次 push（所有分支和标签）都运行构建并上传 artifact；手动运行也上传。成功构建包含 deb 和 SHA256，失败构建上传已有诊断日志。
+- 每次 push（所有分支和标签）和手动运行均独立构建 rootful、rootless、roothide，各上传一份 artifact。成功构建包含 deb、分方案 SHA256 和构建信息，失败构建上传已有诊断日志；某个方案失败不会取消其他方案。
 - 仅默认分支的 push，且最终 `VERSION` 与该次 push 之前不同，才发布 `v版本号` release。一次 push 中间包含版本提交、最后还有其他提交，也能正确识别。
 - 首次默认分支 push 引入 `VERSION` 视为版本变化，创建首个 release。仅修改代码、文档或 `BUILD_NUMBER` 不发布。
 - 其他分支/tag push 和手动运行不发布；已有同名 release 不覆盖。无法取得旧提交时保留构建/artifact，停止自动发布。
 - 普通构建只使用只读仓库权限；独立发布 job 才有 `contents: write`。不需要配置自定义 token。请允许仓库运行 Actions；仓库/组织策略仍可限制发布权限。
 
-发布新版时修改 `VERSION`，并按需递增 `BUILD_NUMBER`。`control` 和 App 的 `Info.plist` 从 `packaging/` 模板自动生成，无需手动同步。源码版本目前为 1.3.8（构建号 1308），变更见[版本记录](docs/RELEASES.md)。
+Release 要求三种构建全部成功，包含三个 `SIMHarbor_VERSION_方案.deb`、合并的 `SHA256SUMS` 以及各方案的构建信息。
+
+发布新版时修改 `VERSION`，并按需递增 `BUILD_NUMBER`。`control` 和 App 的 `Info.plist` 从 `packaging/` 模板自动生成，无需手动同步。源码版本目前为 1.3.10（构建号 1310），变更见[版本记录](docs/RELEASES.md)。
 
 ## 测试与验证范围
 
@@ -52,6 +57,8 @@ App 仅内置双语使用说明，技术文章保留在仓库中：
 - [验证范围](docs/VALIDATION.md)
 
 ## 源码与资料
+
+项目自有原生源码使用 clang-format 22 和 `.clang-format`，Python 使用 Ruff 0.17.3 和 `pyproject.toml`，shell 使用 shfmt 3.12.0。工具加入 `PATH` 后，执行 `python3 scripts/format_code.py` 格式化，追加 `--check` 可检查；Ruff 也可由 `uv` 提供。脚本保留 Logos 的 `%ctor` 语法，第三方代码保留上游排版。
 
 - `viewer/`：UIKit App、LPA、二维码、日志、双语使用说明、关于页。
 - `tweak/`：CommCenter 通道、Capstone/RTTI/调用图定位。

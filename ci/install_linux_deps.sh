@@ -9,7 +9,10 @@ key=$(mktemp)
 trap 'python3 -c "from pathlib import Path; import sys; Path(sys.argv[1]).unlink(missing_ok=True)" "$key"' EXIT
 curl -fsSL --retry 3 https://apt.llvm.org/llvm-snapshot.gpg.key -o "$key"
 fingerprint=$(gpg --show-keys --with-colons "$key" | awk -F: '$1 == "fpr" {print $10; exit}')
-[[ "$fingerprint" == 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421 ]] || { echo 'Unexpected LLVM apt signing key' >&2; exit 1; }
+[[ "$fingerprint" == 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421 ]] || {
+    echo 'Unexpected LLVM apt signing key' >&2
+    exit 1
+}
 "${AS_ROOT[@]}" gpg --dearmor --yes -o /usr/share/keyrings/simharbor-llvm.gpg "$key"
 echo 'deb [signed-by=/usr/share/keyrings/simharbor-llvm.gpg] https://apt.llvm.org/noble/ llvm-toolchain-noble-22 main' | "${AS_ROOT[@]}" tee /etc/apt/sources.list.d/simharbor-llvm.list > /dev/null
 "${AS_ROOT[@]}" apt-get update -qq

@@ -2,7 +2,7 @@
 
 [English](IPC.md) | **简体中文**
 
-本文描述 SIMHarbor 1.3.8 的实际实现。这是一套没有协议版本协商的内部协议。对应源码：[App 桥接层](../viewer/Bridge.m)、[扩展](../tweak/Apdu.mm)、[报文辅助函数](../shared/Wire.h)、[配对值生成器](../scripts/generate_pairing_key.py)。
+本文描述 SIMHarbor 1.3.8 引入、至 1.3.10 保持不变的通信协议。这是一套没有协议版本协商的内部协议。对应源码：[App 桥接层](../viewer/Bridge.m)、[扩展](../tweak/Apdu.mm)、[报文辅助函数](../shared/Wire.h)、[配对值生成器](../scripts/generate_pairing_key.py)。
 
 ## 传输与连接方向
 
@@ -92,4 +92,4 @@ App 为每个请求添加新的 UUID 字符串 `id`，扩展在回复中原样�
 
 查看英文日志中的 `IPC listener started`、`IPC peer authenticated`、监听启动/接收错误和请求回复 ID。1.3.8 的监听错误包含系统错误文本及编号。认证拒绝目前只关闭 socket，不会记录具体认证原因。即使 App 一直在前台，仍要求扩展已注入、正在运行且双方来自匹配的构建。APDU TX/RX 日志在 IPC 元数据之外另行记录，其中可能包含卡片数据。
 
-监听恢复改动已通过本地 Objective-C 语法检查；新安装包在真机前后台切换后的恢复效果仍待验证。
+roothide 真机上的 1.3.10 已通过启动、卡片列表刷新和模拟 `accept()` 失败后的恢复测试，卡片列表保持一致。1.3.9 还通过了后台停留 163 秒后返回前台的测试。这些结果不代表已验证其他越狱方案或固件的运行兼容性。

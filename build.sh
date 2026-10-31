@@ -2,6 +2,15 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE"
+scheme="${SIMHARBOR_SCHEME:-roothide}"
+case "$scheme" in
+rootful) export THEOS_PACKAGE_SCHEME= ;;
+rootless | roothide) export THEOS_PACKAGE_SCHEME="$scheme" ;;
+*)
+    echo 'SIMHARBOR_SCHEME must be rootful, rootless or roothide' >&2
+    exit 2
+    ;;
+esac
 export THEOS="${THEOS:-${SIMHARBOR_THEOS:-$HERE/.deps/theos}}"
 export PATH="$THEOS/toolchain/linux/iphone/bin:$PATH"
 export TARGET_CC="$HERE/ccwrap.sh"
@@ -16,4 +25,4 @@ python3 scripts/fetch_gum.py
 python3 scripts/generate_pairing_key.py
 trap 'python3 "$HERE/scripts/generate_pairing_key.py" --clean' EXIT
 make clean package FINALPACKAGE=1 "$@"
-echo 'Package output: packages/'
+echo "Package output: packages/ ($scheme)"

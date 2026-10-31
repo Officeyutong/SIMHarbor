@@ -1,5 +1,37 @@
 # Release notes / 版本记录
 
+## 1.3.10 — build 1310
+
+### English
+
+- Add the SIMHarbor source repository to About, with English and Chinese labels and the URL `https://github.com/Officeyutong/SIMHarbor`.
+- Format all project-owned native, Python and shell sources using clang-format 22, Ruff and shfmt. Add shared formatting configuration and a reproducible format/check command, including Logos syntax handling. Localization source checks now tolerate formatted line breaks.
+- Include the CI and three-package corrections described under 1.3.9. All three final packages build and pass package validation; offline sanitizer tests, resolver fixture replay, release-policy and archive extraction tests, formatting checks and workflow lint pass.
+- Installed the final roothide package on the phone: service connection, reading five profiles, recovery after an injected acceptance error and bilingual About repository rows passed; the profile baseline remained unchanged. Rootful/rootless have package checks only.
+
+### 简体中文
+
+- 关于页新增 SIMHarbor 源码仓库入口，提供中英文标签，地址为 `https://github.com/Officeyutong/SIMHarbor`。
+- 使用 clang-format 22、Ruff 和 shfmt 统一项目自有原生、Python 与 shell 代码排版，加入共享配置及可重复执行的格式化/检查命令，并保留 Logos 语法。本地化源码检查支持格式化后的换行。
+- 包含 1.3.9 下记录的 CI 和三种安装包修复。最终三种包均构建并通过包校验；离线 sanitizer 测试、解析器样本回放、发布策略与解包测试、格式检查及工作流语法检查通过。
+- 最终 roothide 包已安装到手机，服务连接、读取五张卡片、模拟接收错误后的恢复及关于页双语仓库入口均通过，卡片列表保持一致。rootful/rootless 目前仅完成包检查。
+
+## 1.3.9 — build 1309
+
+### English
+
+- Fix CI bootstrap: official Frida Gum archives use `./`-prefixed member names. Normalize those names while preserving checksum verification and rejecting duplicate or non-regular entries. Add extraction regression tests.
+- Build independent rootful, rootless and roothide packages using the pinned roothide/Theos. Every push uploads per-scheme artifacts; a version-gated release publishes all three debs only after all variants succeed, with combined checksums and per-scheme provenance.
+- Generate the install script with the correct app path, select the scheme's Debian architecture and substrate dependency, and include the four app entitlements required by the roothide Developer README. Verify package contents and the versioned arm64e slice before collecting artifacts.
+- All three packages built and passed local package verification. Offline sanitizer tests, CI release-policy tests, archive extraction tests and workflow lint passed. On the roothide phone, 1.3.9 connected, read five profiles, recovered after an injected acceptance failure, and preserved the profile baseline. Rootful/rootless runtime compatibility still needs devices with those jailbreaks.
+
+### 简体中文
+
+- 修复 CI 初始化失败：官方 Frida Gum 压缩包成员名带 `./` 前缀。规范化名称后提取，保留校验和验证，拒绝重复或非普通文件，并添加解包回归测试。
+- 使用固定版本 roothide/Theos 分别构建 rootful、rootless、roothide。每次 push 上传各方案 artifact；版本号触发的 release 要求三个方案全部成功，再发布三个 deb、合并校验和和分方案构建信息。
+- 按方案生成正确的安装脚本 App 路径，选择 Debian 架构和 substrate 依赖，补齐 roothide Developer README 要求的四项 App 权限。收集产物前检查包内容及 arm64e ABI 版本标记。
+- 三种包均已在本地构建并通过包检查；离线 sanitizer 测试、CI 发布策略测试、解包测试和工作流语法检查通过。roothide 真机上的 1.3.9 已连接服务、读取五张卡片，并在模拟接收连接失败后恢复，卡片列表保持一致。rootful/rootless 运行兼容性仍需对应越狱设备验证。
+
 ## 1.3.8 — build 1308
 
 ### English
