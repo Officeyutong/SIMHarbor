@@ -50,67 +50,39 @@ static NSAttributedString *DocRender(NSString *markdown) {
     return result;
 }
 
-@interface SHDocumentArticleVC : UIViewController
-@property(nonatomic,strong) NSDictionary *article;
+@interface SHDocumentsVC ()
+@property(nonatomic,copy) NSString *markdown;
 @property(nonatomic,strong) UITextView *textView;
 @end
-@implementation SHDocumentArticleVC
+@implementation SHDocumentsVC
 - (void)viewDidLoad {
-    [super viewDidLoad];self.title=self.article[@"title"];self.navigationItem.largeTitleDisplayMode=UINavigationItemLargeTitleDisplayModeNever;
-    self.view.backgroundColor=UIColor.systemBackgroundColor;self.textView=[[UITextView alloc]initWithFrame:CGRectZero];
-    self.textView.translatesAutoresizingMaskIntoConstraints=NO;self.textView.editable=NO;self.textView.selectable=YES;
-    self.textView.backgroundColor=UIColor.systemBackgroundColor;self.textView.textContainerInset=UIEdgeInsetsMake(18,18,30,18);
-    [self.view addSubview:self.textView];[NSLayoutConstraint activateConstraints:@[
+    [super viewDidLoad];self.title=SHL(@"User guide");self.navigationController.navigationBar.prefersLargeTitles=YES;
+    self.view.backgroundColor=UIColor.systemBackgroundColor;
+    NSString *filename=[@"Documentation-" stringByAppendingString:SHResolvedLanguage()];
+    NSString *path=[NSBundle.mainBundle pathForResource:filename ofType:@"json"];
+    NSData *data=path?[NSData dataWithContentsOfFile:path]:nil;
+    id articles=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
+    if([articles isKindOfClass:NSArray.class]&&[articles count]==1){
+        id article=[articles firstObject];
+        if([article isKindOfClass:NSDictionary.class]&&[article[@"id"]isEqual:@"guide"]&&[article[@"body"]isKindOfClass:NSString.class])self.markdown=article[@"body"];
+    }
+    self.textView=[[UITextView alloc]initWithFrame:CGRectZero];self.textView.translatesAutoresizingMaskIntoConstraints=NO;
+    self.textView.editable=NO;self.textView.selectable=YES;self.textView.backgroundColor=UIColor.systemBackgroundColor;
+    self.textView.textContainerInset=UIEdgeInsetsMake(18,18,30,18);[self.view addSubview:self.textView];
+    [NSLayoutConstraint activateConstraints:@[
         [self.textView.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor],
         [self.textView.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor],
         [self.textView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
         [self.textView.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor]]];
-    self.navigationItem.rightBarButtonItem=[[UIBarButtonItem alloc]initWithTitle:SHL(@"Copy")style:UIBarButtonItemStylePlain target:self action:@selector(copyArticle)];
-    [[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(render)name:UIContentSizeCategoryDidChangeNotification object:nil];[self render];
+    self.navigationItem.rightBarButtonItem=[[UIBarButtonItem alloc]initWithTitle:SHL(@"Copy") style:UIBarButtonItemStylePlain target:self action:@selector(copyGuide)];
+    self.navigationItem.rightBarButtonItem.enabled=self.markdown!=nil;
+    [[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(render) name:UIContentSizeCategoryDidChangeNotification object:nil];[self render];
 }
-- (void)render {CGPoint offset=self.textView.contentOffset;self.textView.attributedText=DocRender(self.article[@"body"]?:@"");[self.textView setContentOffset:offset animated:NO];}
-- (void)copyArticle {UIPasteboard.generalPasteboard.string=self.textView.text;}
+- (void)render {
+    CGPoint offset=self.textView.contentOffset;
+    self.textView.attributedText=DocRender(self.markdown?:SHL(@"Unable to load the user guide."));
+    [self.textView setContentOffset:offset animated:NO];
+}
+- (void)copyGuide {if(self.markdown)UIPasteboard.generalPasteboard.string=self.textView.text;}
 - (void)dealloc {[[NSNotificationCenter defaultCenter]removeObserver:self];}
-@end
-
-@interface SHDocumentsVC () <UISearchResultsUpdating>
-@property(nonatomic,strong) NSArray<NSDictionary *> *articles;
-@property(nonatomic,strong) NSArray<NSDictionary *> *filtered;
-@property(nonatomic,strong) UISearchController *search;
-@property(nonatomic) BOOL failed;
-@end
-@implementation SHDocumentsVC
-- (instancetype)init {return [super initWithStyle:UITableViewStyleInsetGrouped];}
-- (void)viewDidLoad {
-    [super viewDidLoad];self.title=SHL(@"Documents");self.tableView.rowHeight=UITableViewAutomaticDimension;self.tableView.estimatedRowHeight=96;
-    self.navigationController.navigationBar.prefersLargeTitles=YES;
-    NSString *filename=[@"Documentation-"stringByAppendingString:SHResolvedLanguage()];
-    NSString *path=[NSBundle.mainBundle pathForResource:filename ofType:@"json"];NSData *data=path?[NSData dataWithContentsOfFile:path]:nil;
-    id articles=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
-    self.failed=![articles isKindOfClass:NSArray.class]||![articles count];self.articles=self.failed?@[]:articles;self.filtered=self.articles;
-    self.search=[[UISearchController alloc]initWithSearchResultsController:nil];self.search.searchResultsUpdater=self;
-    self.search.obscuresBackgroundDuringPresentation=NO;self.search.searchBar.placeholder=SHL(@"Search documents");
-    self.navigationItem.searchController=self.search;self.navigationItem.hidesSearchBarWhenScrolling=NO;self.definesPresentationContext=YES;
-}
-- (NSInteger)tableView:(UITableView *)table numberOfRowsInSection:(NSInteger)section {return self.filtered.count?:1;}
-- (NSString *)tableView:(UITableView *)table titleForFooterInSection:(NSInteger)section {return SHL(@"Bundled for offline reading. No card or network connection is required.");}
-- (UITableViewCell *)tableView:(UITableView *)table cellForRowAtIndexPath:(NSIndexPath *)index {
-    UITableViewCell *cell=[[UITableViewCell alloc]initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
-    cell.textLabel.font=[UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];cell.textLabel.adjustsFontForContentSizeCategory=YES;cell.textLabel.numberOfLines=0;
-    cell.detailTextLabel.font=[UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];cell.detailTextLabel.adjustsFontForContentSizeCategory=YES;cell.detailTextLabel.numberOfLines=0;
-    if(!self.filtered.count){cell.textLabel.text=SHL(self.failed?@"Unable to load documentation.":@"No matching documents.");cell.selectionStyle=UITableViewCellSelectionStyleNone;return cell;}
-    NSDictionary *article=self.filtered[index.row];cell.textLabel.text=article[@"title"];cell.detailTextLabel.text=article[@"summary"];
-    cell.accessoryType=UITableViewCellAccessoryDisclosureIndicator;return cell;
-}
-- (void)updateSearchResultsForSearchController:(UISearchController *)controller {
-    NSString *query=[controller.searchBar.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    self.filtered=!query.length?self.articles:[self.articles filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSDictionary *article,NSDictionary *bindings){
-        return [article[@"title"]localizedCaseInsensitiveContainsString:query]||[article[@"summary"]localizedCaseInsensitiveContainsString:query]||[article[@"body"]localizedCaseInsensitiveContainsString:query];
-    }]];[self.tableView reloadData];
-}
-- (void)tableView:(UITableView *)table didSelectRowAtIndexPath:(NSIndexPath *)index {
-    [table deselectRowAtIndexPath:index animated:YES];if(!self.filtered.count)return;
-    NSDictionary *article=self.filtered[index.row];self.search.active=NO;SHDocumentArticleVC *reader=[SHDocumentArticleVC new];reader.article=article;
-    [self.navigationController pushViewController:reader animated:YES];
-}
 @end

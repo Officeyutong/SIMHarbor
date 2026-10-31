@@ -14,6 +14,7 @@ with tempfile.TemporaryDirectory(prefix='deb-check-') as folder:
     info=plistlib.loads((app/'Info.plist').read_bytes());assert info['CFBundleShortVersionString']==version and info['CFBundleVersion']==build
     for language in ['en','zh-Hans']:
         name='Documentation-'+language+'.json';assert (app/name).read_bytes()==(ROOT/'viewer/Resources'/name).read_bytes()
+        assert [article['id'] for article in json.loads((app/name).read_text())]==['guide'], 'Only the user guide may be bundled'
 name='SIMHarbor_'+version+'_roothide.deb';shutil.copy2(package,dist/name)
 commit=subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD'],text=True).strip()
 (dist/'build-info.json').write_text(json.dumps({'version':version,'build':build,'commit':commit,'architecture':'iphoneos-arm64e','dependencies':json.loads((ROOT/'ci/dependencies.json').read_text())},indent=2)+'\n')

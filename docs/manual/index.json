@@ -9,49 +9,5 @@
       "title": "使用说明",
       "summary": "读取、下载和管理卡片，以及设置和语言选择。"
     }
-  },
-  {
-    "id": "signals",
-    "en": {
-      "title": "Logs and custom signals",
-      "summary": "Trace formats, APDU and DER modes, and Get EID examples."
-    },
-    "zh-Hans": {
-      "title": "日志与自定义信令",
-      "summary": "信令格式、APDU 与 DER 模式，以及 Get EID 示例。"
-    }
-  },
-  {
-    "id": "architecture",
-    "en": {
-      "title": "Technical architecture",
-      "summary": "Native LPA, local IPC, CommCenter and the card transport."
-    },
-    "zh-Hans": {
-      "title": "技术路线",
-      "summary": "本机 LPA、本地 IPC、CommCenter 扩展与卡片通路。"
-    }
-  },
-  {
-    "id": "porting",
-    "en": {
-      "title": "Porting guide",
-      "summary": "Firmware UUIDs, private ABI, offsets and validation steps."
-    },
-    "zh-Hans": {
-      "title": "移植指南",
-      "summary": "其他 iOS/设备的 UUID、私有 ABI、关键偏移和验证步骤。"
-    }
-  },
-  {
-    "id": "validation",
-    "en": {
-      "title": "Compatibility and validation",
-      "summary": "Device-tested results, offline checks and unsupported features."
-    },
-    "zh-Hans": {
-      "title": "兼容性与验证范围",
-      "summary": "真机结果、本地检查，以及 OpenEUICC 功能支持边界。"
-    }
   }
 ]

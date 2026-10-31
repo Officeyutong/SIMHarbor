@@ -259,3 +259,7 @@
 "Unable to open this link." = "Unable to open this link.";
 "Tap the QR code to focus. Move farther away if blurred." = "Tap the QR code to focus. Move farther away if blurred.";
 "Unable to focus. Tap to try again." = "Unable to focus. Tap to try again.";
+
+"User guide" = "User guide";
+
+"Unable to load the user guide." = "Unable to load the user guide.";

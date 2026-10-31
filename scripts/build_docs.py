@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bundle the bilingual offline manual. No network, rendering service or device required."""
+"""Bundle only the bilingual user guide; validate repository technical references."""
 import argparse
 import json
 import pathlib
@@ -14,7 +14,7 @@ def generate(check=False):
     manual = ROOT / "docs/manual"
     index = json.loads((manual / "index.json").read_text())
     ids = [entry["id"] for entry in index]
-    assert ids == ["guide", "signals", "architecture", "porting", "validation"]
+    assert ids == ["guide"], "The app bundles only its user guide"
     assert len(ids) == len(set(ids))
     outputs = {}
     for language in LANGUAGES:
@@ -35,10 +35,10 @@ def generate(check=False):
     route = (ROOT / "docs/ARCHITECTURE_PORTING.md").read_text()
     offsets = set(re.findall(r"0x[0-9a-f]+", route))
     for language, pages in outputs.items():
-        technical = "\n".join(page["body"] for page in pages if page["id"] in ["architecture", "porting"])
+        technical = "\n".join((manual / language / (name + ".md")).read_text() for name in ["architecture", "porting"])
         assert set(re.findall(r"0x[0-9a-f]+", technical)) == offsets, (language, "offset mismatch")
         assert "10bdb2fd04e33fcea0a188d064801df2" in technical
-        signals = next(page["body"] for page in pages if page["id"] == "signals")
+        signals = (manual / language / "signals.md").read_text()
         assert "80 E2 91 00 06 BF 3E 03 5C 01 5A" in signals and "BF 3E 03 5C 01 5A" in signals
         path = ROOT / "viewer/Resources" / ("Documentation-" + language + ".json")
         data = (json.dumps(pages, ensure_ascii=False, indent=2) + "\n").encode()
@@ -46,7 +46,7 @@ def generate(check=False):
             assert path.exists() and path.read_bytes() == data, f"Stale manual: run python3 {__file__}"
         else:
             path.write_bytes(data)
-    print(f"PASS: {len(ids)} offline articles in both languages; examples, UUID, offsets and bundled contents match")
+    print("PASS: only the user guide bundled in both languages; repository examples, UUID and offsets match")
 
 
 if __name__ == "__main__":

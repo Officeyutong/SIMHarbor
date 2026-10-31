@@ -1,6 +1,6 @@
 # Using SIMHarbor
 
-SIMHarbor manages removable eUICC cards locally on a jailbroken iPhone. Card operations require the supported CommCenter extension. This Documents section can be read offline.
+SIMHarbor manages removable eUICC cards locally on a jailbroken iPhone. Card operations require the supported CommCenter extension. This user guide can be read offline.
 
 ## Read and manage profiles
 
@@ -26,12 +26,14 @@ The information button opens Card info and settings, Notifications and Signal co
 - An entire-card reset checks the EID and requires typing `RESET`. It removes profiles and has not been tested on the existing card.
 - App → Language offers Follow system, English and Simplified Chinese. The interface changes immediately; logs remain English.
 
-## Documents and logs
+## User guide, logs and custom signals
 
-Search Documents by title, summary or article body. Select text to copy examples and offsets, or use Copy to copy an entire article's displayed text. Reading documentation never executes its examples.
+The User guide tab opens these instructions directly. Select text or use Copy to copy the guide. Reading it sends no card commands and requires no network connection.
 
-Logs shows English raw signaling with copy, clear and `.log` export. See Logs and custom signals for formats and limits.
+Logs shows English raw signaling with copy, clear and `.log` export. Logs can contain activation credentials and card identifiers; review them before sharing.
+
+Signal console accepts raw APDU batches or an ES10 DER request and shows the response. Start with its read-only Get EID example when checking the connection. Sending requires confirmation; commands can modify card data. Raw APDU mode does not automatically retry commands or fetch follow-up responses. DER mode handles the configured request fragmentation and response collection.
 
 ## About
 
-The About tab shows the installed app version and build number, developer officeyutong, the GitHub profile at https://github.com/officeyutong, offline documentation and bundled open-source licenses. Version information comes from the installed app.
+The About tab shows the installed app version and build number, developer officeyutong, the GitHub profile at https://github.com/officeyutong, the user guide and bundled open-source licenses. Version information comes from the installed app.

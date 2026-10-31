@@ -7,7 +7,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from document_privacy import issues
 
-paths = [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md")),
+paths = [*sorted(ROOT.glob("README*.md")), *sorted((ROOT / "docs").rglob("*.md")),
          *sorted((ROOT / "viewer/Resources").glob("Documentation-*.json"))]
 failed = []
 for path in paths:

@@ -259,3 +259,7 @@
 "Unable to open this link." = "无法打开此链接。";
 "Tap the QR code to focus. Move farther away if blurred." = "轻点二维码位置对焦。画面模糊时请适当拉远距离。";
 "Unable to focus. Tap to try again." = "暂时无法对焦，请轻点重试。";
+
+"User guide" = "使用说明";
+
+"Unable to load the user guide." = "无法加载使用说明。";

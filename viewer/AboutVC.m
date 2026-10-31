@@ -10,7 +10,7 @@
     self.text=[[UITextView alloc]initWithFrame:self.view.bounds];self.text.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;self.text.editable=NO;
     self.text.font=[UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];self.text.textContainerInset=UIEdgeInsetsMake(18,16,30,16);
     NSMutableArray *parts=[NSMutableArray array];
-    for(NSString *name in @[@"THIRD_PARTY_NOTICES",@"LICENSE-LGPL-2.1",@"LICENSE-Frida-Gum",@"LICENSE-Capstone",@"LICENSE-Capstone-LLVM"]){
+    for(NSString *name in @[@"LICENSE-SIMHarbor",@"THIRD_PARTY_NOTICES",@"LICENSE-LGPL-2.1",@"LICENSE-Frida-Gum",@"LICENSE-Capstone",@"LICENSE-Capstone-LLVM"]){
         NSString *path=[NSBundle.mainBundle pathForResource:name ofType:@"txt"];
         NSString *body=path?[NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil]:nil;
         if(body)[parts addObject:[NSString stringWithFormat:@"%@\n\n%@",name,body]];
@@ -45,7 +45,7 @@
         cell.accessibilityIdentifier=@[@"about.version",@"about.build",@"about.developer"][index.row];
     }else{
         cell.selectionStyle=UITableViewCellSelectionStyleDefault;cell.accessoryType=UITableViewCellAccessoryDisclosureIndicator;
-        cell.textLabel.text=@[@"GitHub",SHL(@"Offline documentation"),SHL(@"Open-source licenses")][index.row];
+        cell.textLabel.text=@[@"GitHub",SHL(@"User guide"),SHL(@"Open-source licenses")][index.row];
         if(index.row==0)cell.detailTextLabel.text=@"github.com/officeyutong";
         cell.imageView.image=[UIImage systemImageNamed:@[@"link",@"book.closed",@"doc.text"][index.row]];
         cell.accessibilityIdentifier=@[@"about.github",@"about.documents",@"about.licenses"][index.row];

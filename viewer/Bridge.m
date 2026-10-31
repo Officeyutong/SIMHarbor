@@ -4,20 +4,26 @@
 #import "../shared/Wire.h"
 #import <arpa/inet.h>
 #import <Security/Security.h>
+#import <errno.h>
+#import <string.h>
 @interface SHBridge(){int _peer;NSRecursiveLock*_lock;}
 @end
 @implementation SHBridge
 + (instancetype)shared{static SHBridge*b;static dispatch_once_t once;dispatch_once(&once,^{b=[SHBridge new];b->_peer=-1;b->_lock=[NSRecursiveLock new];});return b;}
 - (BOOL)connected{[_lock lock];BOOL yes=_peer>=0;[_lock unlock];return yes;}
 - (void)start{static dispatch_once_t once;dispatch_once(&once,^{dispatch_async(dispatch_get_global_queue(0,0),^{
- int server=socket(AF_INET,SOCK_STREAM,0),yes=1;setsockopt(server,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof yes);setsockopt(server,SOL_SOCKET,SO_NOSIGPIPE,&yes,sizeof yes);
+ while(1){@autoreleasepool{
+ int server=socket(AF_INET,SOCK_STREAM,0),yes=1;
+ if(server<0){[[SHTraceLog shared]event:[NSString stringWithFormat:@"IPC socket creation failed: %s (%d); retrying.",strerror(errno),errno]];sleep(1);continue;}setsockopt(server,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof yes);setsockopt(server,SOL_SOCKET,SO_NOSIGPIPE,&yes,sizeof yes);
  struct sockaddr_in addr={0};addr.sin_len=sizeof addr;addr.sin_family=AF_INET;addr.sin_port=htons(SH_PORT);addr.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
- if(bind(server,(struct sockaddr*)&addr,sizeof addr)||listen(server,2)){[[SHTraceLog shared]event:@"IPC listener failed to start."];close(server);return;}[[SHTraceLog shared]event:@"IPC listener started on loopback port 18099."];
- while(1){@autoreleasepool{int fd=accept(server,NULL,NULL);if(fd<0)continue;setsockopt(fd,SOL_SOCKET,SO_NOSIGPIPE,&yes,sizeof yes);struct timeval timeout={5,0};setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof timeout);setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&timeout,sizeof timeout);
+ if(bind(server,(struct sockaddr*)&addr,sizeof addr)||listen(server,2)){int code=errno;[[SHTraceLog shared]event:[NSString stringWithFormat:@"IPC listener failed to start: %s (%d); retrying.",strerror(code),code]];close(server);sleep(1);continue;}[[SHTraceLog shared]event:[NSString stringWithFormat:@"IPC listener started on loopback port %d.",SH_PORT]];
+ while(1){@autoreleasepool{int fd=accept(server,NULL,NULL);if(fd<0){int code=errno;if(code==EINTR)continue;[[SHTraceLog shared]event:[NSString stringWithFormat:@"IPC accept failed: %s (%d); rebuilding listener.",strerror(code),code]];break;}setsockopt(fd,SOL_SOCKET,SO_NOSIGPIPE,&yes,sizeof yes);struct timeval timeout={5,0};setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof timeout);setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&timeout,sizeof timeout);
  unsigned char bytes[32];if(SecRandomCopyBytes(kSecRandomDefault,sizeof bytes,bytes)!=errSecSuccess){close(fd);continue;}NSString*nonce=SHHex([NSData dataWithBytes:bytes length:32]);BOOL ok=SHWrite(fd,@{@"nonce":nonce});NSDictionary*reply=ok?SHRead(fd):nil;
  if(!SHSame(reply[@"mac"],SHMAC(@"commcenter:",nonce))||!SHWrite(fd,@{@"mac":SHMAC(@"app:",nonce)})){close(fd);continue;}
  [self->_lock lock];if(self->_peer>=0){char b;ssize_t n=recv(self->_peer,&b,1,MSG_PEEK|MSG_DONTWAIT);if(n==0||(n<0&&errno!=EAGAIN&&errno!=EWOULDBLOCK)){close(self->_peer);self->_peer=-1;}}
  if(self->_peer>=0)close(fd);else{timeout.tv_sec=35;setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof timeout);self->_peer=fd;[[SHTraceLog shared]event:@"IPC peer authenticated."];}[self->_lock unlock];
+ }}
+ close(server);sleep(1);
  }}});});}
 - (NSDictionary*)request:(NSDictionary*)body error:(NSError**)error{[_lock lock];NSMutableDictionary*q=[body mutableCopy];q[@"id"]=NSUUID.UUID.UUIDString;NSDictionary*r=nil;
  NSString*op=q[@"op"]?:@"unknown";NSString*trace=[NSString stringWithFormat:@"IPC TX id=%@ op=%@",q[@"id"],op];[[SHTraceLog shared]event:trace];

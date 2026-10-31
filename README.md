@@ -1,14 +1,16 @@
-# 芯舟 · SIMHarbor
+# SIMHarbor
 
-在越狱 iPhone 上管理可移除 eUICC 的原生 App 与 CommCenter 扩展。开发者：[officeyutong](https://github.com/officeyutong)。
+**English** | [简体中文](README.zh-CN.md)
 
-支持卡片列表、下载、启用/停用、昵称、删除、通知管理、二维码相机/图片识别、连续及点击对焦、中英文界面、离线文档和原始 APDU/DER 控制台。日常运行不需要电脑或 Frida server。
+SIMHarbor (芯舟) is a native app and CommCenter extension for managing removable eUICC cards on jailbroken iPhones. Developed by [officeyutong](https://github.com/officeyutong).
 
-当前已核对的私有 ABI：iPhone 13 / iOS 17.2.1（21C66），roothide。运行时解析地址、字段和活对象；未批准的镜像 UUID 对只提供诊断，不操作卡片。其他固件需要验证，不能仅移除 ABI 门禁。关于页面显示安装版本、构建号和开源许可。
+Features include profile listing, downloading, enabling/disabling, renaming, deletion, notification management, camera and image QR scanning, continuous and tap-to-focus, English and Chinese interfaces, an offline user guide, and a raw APDU/DER console. Normal use requires neither a computer nor Frida server.
 
-## Linux 构建
+The currently verified private ABI targets iPhone 13 / iOS 17.2.1 (21C66), with roothide. Addresses, fields, and live objects are resolved at runtime. Unapproved image UUID pairs provide diagnostics only and cannot operate on the card. Other firmware requires validation; removing the ABI gate is insufficient. The About page shows the installed version, build number, and open-source licenses.
 
-使用 Ubuntu 24.04、Clang 22、固定版本 roothide/Theos、SDK 16.5 和旧版 Darwin 链接工具。依赖会下载到忽略目录，不需要设备账号、激活码或 Apple 开发者签名证书。
+## Build on Linux
+
+The build uses Ubuntu 24.04, Clang 22, pinned roothide/Theos, SDK 16.5, and a legacy Darwin linker toolchain. Dependencies are downloaded into ignored directories. No device credentials, activation codes, or Apple developer signing certificates are required.
 
 ```sh
 bash ci/install_linux_deps.sh
@@ -19,35 +21,48 @@ python3 tests/check_offline.py
 bash build.sh
 ```
 
-deb 输出在 `packages/`。公开依赖的来源、提交号和校验值见 `ci/dependencies.json` 与 `vendor/frida-gum/PROVENANCE.json`。构建时为 App 和扩展生成同一份随机 IPC 配对材料，构建结束删除头文件；不要拆开安装来自不同构建的 App 和扩展。
+The deb is written to `packages/`. Dependency sources, revisions, and checksums are recorded in `ci/dependencies.json` and `vendor/frida-gum/PROVENANCE.json`. Each build generates shared random IPC pairing material for its app and extension, then removes the generated header. Install the app and extension together from the same build.
 
-## 自动打包与发布
+## Automated builds and releases
 
-GitHub Actions 文件：`.github/workflows/build.yml`。
+GitHub Actions workflow: `.github/workflows/build.yml`.
 
-- 每次 push（所有分支和标签）都运行构建并上传 artifact；手动运行也上传。成功构建包含 deb 和 SHA256，失败构建上传已有诊断日志。
-- 仅默认分支的 push，且最终 `VERSION` 与该次 push 之前不同，才发布 `v版本号` release。一次 push 中间包含版本提交、最后还有其他提交，也能正确识别。
-- 首次默认分支 push 引入 `VERSION` 视为版本变化，创建首个 release。仅修改代码、文档或 `BUILD_NUMBER` 不发布。
-- 分支/tag push 和手动运行不发布；已有同名 release 不覆盖。无法取得旧提交时保留构建/artifact，停止自动发布。
-- 普通构建只使用只读仓库权限；独立发布 job 才有 `contents: write`。不需要配置自定义 token。请允许仓库运行 Actions；仓库/组织策略仍可限制发布权限。
+- Every push, including all branches and tags, runs the build and uploads an artifact. Manual runs also upload artifacts. Successful builds include the deb and SHA256 checksum; failed builds upload available diagnostics.
+- A release tagged `vVERSION` is published only for a push to the default branch whose final `VERSION` differs from its value before that push. This also detects version changes followed by other commits within the same push.
+- Introducing `VERSION` in the initial default-branch push counts as a version change and creates the first release. Changes only to code, documentation, or `BUILD_NUMBER` do not publish a release.
+- Pushes to other branches, tag pushes, and manual runs do not publish releases. Existing releases are never overwritten. If the previous commit cannot be retrieved, the build and artifact upload proceed while publishing is disabled.
+- Build jobs have read-only repository permissions. Only the separate release job receives `contents: write`. No custom token is required. Enable Actions in the repository; repository or organization policies may still restrict publishing.
 
-发布新版时修改 `VERSION`，并按需递增 `BUILD_NUMBER`。`control` 和 App 的 `Info.plist` 从 `packaging/` 模板自动生成，无需手动同步。源码版本目前为 1.3.7。
+To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.7.
 
-## 测试与验证范围
+## Tests and validation scope
 
-本地检查覆盖双语文档/隐私、编解码、异常输入、真实 libeuicc 模拟卡端流程、ASan/UBSan，以及真实 Git 历史下的 CI 发布策略。只读设备测试与完整写入测试的适用范围见 [验证记录](docs/VALIDATION.md)。CI 不连接手机，不下载或切换真实 profile。
+Local checks cover bilingual documentation and privacy, codecs, malformed inputs, real libeuicc mock-card flows, ASan/UBSan, and the CI release policy against real Git histories. See the [validation notes](docs/VALIDATION.md) for the scope of read-only device checks and full write tests. CI does not connect to a phone, download a real profile, or switch profiles.
 
-可选的镜像回放测试：`python3 tests/check_resolver.py /path/to/resolver-fixture`，需要自己从授权设备获取的私有镜像；这些数据不纳入仓库或 CI。
+Optional image-replay tests can be run with `python3 tests/check_resolver.py /path/to/resolver-fixture`. They require private images collected from an authorized device; these are excluded from the repository and CI.
 
-## 源码与资料
+## Documentation
 
-- `viewer/`：UIKit App、LPA、二维码、日志、双语文档、关于页。
-- `tweak/`：CommCenter 通道、Capstone/RTTI/调用图定位。
-- `shared/`：协议与 ABI 批准表。
-- `docs/manual/`：随包中英文手册；[移植说明](docs/ARCHITECTURE_PORTING.md)。
-- `ci/`：公开依赖准备、版本发布策略、产物核对。
-- `vendor/`：第三方源码、许可与来源说明；Gum devkit 的头/库在构建时经校验下载。
+The app includes only its bilingual user guide. Technical articles remain in this repository:
 
-本仓库从清理后的源码建立新历史，不包含设备日志、研究快照、安装包历史、固件、账号凭据、激活信息或固定配对密钥。公开硬件型号、固件 UUID、技术偏移与开发者信息按用途保留。`scripts/check_public_tree.py` 检查将进入 Git 的文件，文档生成器另外检查文档隐私。
+- [User guide](docs/manual/en/guide.md)
+- [How the Patchfinder works](docs/PATCHFINDER.md)
+- [Porting guide](docs/manual/en/porting.md)
+- [Validation scope](docs/VALIDATION.md)
 
-第三方许可见 `vendor/LICENSES/` 和 App 内“关于 → 开源许可”；未替第三方组件改写许可。SDK/工具链分别遵循其提供方条款。
+## Source layout
+
+- `viewer/`: UIKit app, LPA, QR scanning, logs, a bilingual user guide, and About page.
+- `tweak/`: CommCenter transport and Capstone/RTTI/call-graph resolution.
+- `shared/`: IPC protocol and approved ABI definitions.
+- `docs/manual/`: the bundled English and Chinese user guide, plus repository-only technical articles.
+- `ci/`: public dependency setup, release policy, and artifact verification.
+- `vendor/`: third-party sources, licenses, and provenance. Gum devkit headers and libraries are downloaded and verified during the build.
+
+This repository starts with a clean source history. It excludes device logs, research snapshots, historical packages, firmware, account credentials, activation information, and fixed pairing keys. Public hardware models, firmware UUIDs, technical offsets, and developer information are retained where relevant. `scripts/check_public_tree.py` checks files destined for Git; the documentation generator also checks documentation privacy.
+
+## License
+
+SIMHarbor's original code and documentation are licensed under the [MIT License](LICENSE), copyright © 2026 officeyutong.
+
+Third-party components retain their respective licenses. Their notices and terms are included with the corresponding sources under `vendor/` and are available under About → Open-source licenses in the app. The project's MIT license does not replace third-party licenses, including libeuicc's LGPL-2.1 terms. SDKs and toolchains remain subject to their providers' terms.

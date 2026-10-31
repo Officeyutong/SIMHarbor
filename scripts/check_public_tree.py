@@ -9,7 +9,7 @@ PATTERNS={
     'private network endpoint':re.compile(r'(?<![\w.])(?:192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(?![\w.])'),
     'private key':re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----'),
     'access token':re.compile(r'\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|AKIA[A-Z0-9]{16})\b'),
-    'literal pairing key':re.compile(r'#define\s+SH_PAIRING_KEY\s+"[0-9a-fA-F]{32,}"'),
+    'literal pairing key':re.compile(r'#define\s+SH_PAIRING_KEY\s+@?"[0-9a-fA-F]{32,}"'),
     'literal subscriber identifier':re.compile(r'(?<![\w])(?:89\d{17,30}|\d{32})(?![\w])'),
 }
 IMAGE_NAMES={'SIMHarbor-1024.png','SIMHarbor-generated-original.png','Icon60@2x.png','Icon60@3x.png','Icon76.png','Icon76@2x.png','Icon83.5@2x.png','QRFixture.png'}

@@ -1,11 +1,11 @@
-# App 内离线手册
+# 双语使用说明与仓库技术文档
 
-文档源为 `index.json` 和 `en/`、`zh-Hans/` 下相同 ID 的 Markdown。当前五篇：guide、signals、architecture、porting、validation。
+App 仅打包 `index.json` 中的 guide：`en/guide.md` 和 `zh-Hans/guide.md`。原生「使用说明」标签直接显示文章，可选择文字、复制全文，并适配动态字体；不再显示多篇文档目录或搜索界面。关于页的帮助入口也打开这份使用说明。
 
-`python3 scripts/build_docs.py` 生成 App 的 `viewer/Resources/Documentation-{en,zh-Hans}.json`；`build.sh` 自动生成。`python3 scripts/build_docs.py --check` 检查资源是否最新；总离线检查也包含此项。
+`python3 scripts/build_docs.py` 生成 `viewer/Resources/Documentation-{en,zh-Hans}.json`，每种语言恰好一篇使用说明；`build.sh` 自动调用。`--check` 检查资源是否最新，离线检查也包含此项。
 
-阅读器使用原生 UITextView，支持标题、段落、列表、行内代码、粗体、text 代码块及双列表格（按条目展开）。内容可复制，目录支持标题/摘要/正文搜索。没有 WebKit、JavaScript、在线依赖或执行文档示例的路径。
+signals、architecture、porting、validation 的双语 Markdown 保留为仓库资料，不进入 App 资源。生成器仍检查技术路线中的偏移/UUID 与两语言 architecture/porting 一致，以及 signals 的 Get EID 示例。Patchfinder 原理文档位于仓库 docs/PATCHFINDER.md 和 docs/PATCHFINDER.zh-CN.md，也不随 App 打包。
 
-技术内容来自主文档 ARCHITECTURE_PORTING.md，中文 architecture/porting 为该文档的阅读版，英文为对应翻译。修改技术路线时同步维护两种语言；生成器会核对所有十六进制偏移、UUID 与 Get EID 示例。图示使用离线文本流程，不嵌入 Mermaid 或仓库相对链接。
+使用说明阅读器采用原生 UITextView，支持标题、段落、列表、行内代码、粗体、text 代码块及双列表格。它不执行示例，不依赖 WebKit、JavaScript、卡片连接或网络。App 的固件解析报告和开源许可仍是独立功能。
 
-文档只记录匿名技术结论。真实设备地址、登录凭据、激活码、卡片标识、个人卡片列表、线路归属和含这些内容的截图不得写入文档或示例；使用 DEVICE_HOST、example.invalid 等占位符。公开型号、系统版本、镜像 UUID、指令及偏移可保留。生成器和 tests/check_docs_privacy.py 自动检查常见泄漏；历史文档已脱敏，不再作为完整原始证据。
+文档只记录匿名技术结论。真实设备地址、登录凭据、激活码、卡片标识、个人卡片列表和线路归属不得写入文档；使用 DEVICE_HOST、example.invalid 等占位符。公开型号、系统版本、镜像 UUID、指令、偏移和明确要求公开的开发者信息可以保留。文档生成器及 tests/check_docs_privacy.py 检查常见泄漏。
