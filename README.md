@@ -33,7 +33,7 @@ GitHub Actions workflow: `.github/workflows/build.yml`.
 - Pushes to other branches, tag pushes, and manual runs do not publish releases. Existing releases are never overwritten. If the previous commit cannot be retrieved, the build and artifact upload proceed while publishing is disabled.
 - Build jobs have read-only repository permissions. Only the separate release job receives `contents: write`. No custom token is required. Enable Actions in the repository; repository or organization policies may still restrict publishing.
 
-To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.7.
+To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.8 (build 1308). See the [release notes](docs/RELEASES.md).
 
 ## Tests and validation scope
 
@@ -47,6 +47,7 @@ The app includes only its bilingual user guide. Technical articles remain in thi
 
 - [User guide](docs/manual/en/guide.md)
 - [How the Patchfinder works](docs/PATCHFINDER.md)
+- [App–CommCenter IPC protocol](docs/IPC.md)
 - [Porting guide](docs/manual/en/porting.md)
 - [Validation scope](docs/VALIDATION.md)
 

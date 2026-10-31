@@ -33,7 +33,7 @@ GitHub Actions 文件：`.github/workflows/build.yml`。
 - 其他分支/tag push 和手动运行不发布；已有同名 release 不覆盖。无法取得旧提交时保留构建/artifact，停止自动发布。
 - 普通构建只使用只读仓库权限；独立发布 job 才有 `contents: write`。不需要配置自定义 token。请允许仓库运行 Actions；仓库/组织策略仍可限制发布权限。
 
-发布新版时修改 `VERSION`，并按需递增 `BUILD_NUMBER`。`control` 和 App 的 `Info.plist` 从 `packaging/` 模板自动生成，无需手动同步。源码版本目前为 1.3.7。
+发布新版时修改 `VERSION`，并按需递增 `BUILD_NUMBER`。`control` 和 App 的 `Info.plist` 从 `packaging/` 模板自动生成，无需手动同步。源码版本目前为 1.3.8（构建号 1308），变更见[版本记录](docs/RELEASES.md)。
 
 ## 测试与验证范围
 
@@ -47,6 +47,7 @@ App 仅内置双语使用说明，技术文章保留在仓库中：
 
 - [使用说明](docs/manual/zh-Hans/guide.md)
 - [Patchfinder 是怎么工作的](docs/PATCHFINDER.zh-CN.md)
+- [App 与 CommCenter 通信协议](docs/IPC.zh-CN.md)
 - [移植指南](docs/manual/zh-Hans/porting.md)
 - [验证范围](docs/VALIDATION.md)
 
