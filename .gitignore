@@ -1,0 +1,32 @@
+# Build outputs and downloaded dependencies
+.theos/
+.deps/
+packages/
+dist/
+__pycache__/
+*.pyc
+*.deb
+*.log
+vendor/frida-gum/arm64/
+vendor/frida-gum/arm64e/
+# Generated version metadata and per-build pairing material
+/control
+/viewer/Resources/Info.plist
+/shared/PairingKey.h
+# Private research must never enter this repository
+private-research/
+research-archive*/
+device-logs/
+releases/
+*.ips
+*.ipsw
+*.dmg
+*.device
+*.pcap
+*.pcapng
+.env
+.env.*
+*.key
+*.p12
+*.mobileprovision
+.DS_Store

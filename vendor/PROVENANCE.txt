@@ -1,0 +1,1 @@
+libeuicc and cjson-ext: estkme-group/lpac commit a43e46aef6f8b5b1d144bf3b3fc5999d8fcefacc. cJSON from that build. Sources and licenses included.

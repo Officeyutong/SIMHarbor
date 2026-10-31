@@ -1,0 +1,25 @@
+{
+  "version": "17.25.0",
+  "upstream": "https://github.com/frida/frida-gum/tree/17.25.0",
+  "archives": [
+    {
+      "architecture": "arm64",
+      "url": "https://github.com/frida/frida/releases/download/17.25.0/frida-gum-devkit-17.25.0-ios-arm64.tar.xz",
+      "archive_sha256": "3e8221707638e128ec4dd26280d5610e48a2f6f2581aa6b9061e6bd48888d9b9",
+      "library_sha256": "af578b287cd12d0423859547a332a4db627c00e03f5abab48312430e14181d46",
+      "header_sha256": "8b4b6dcf5e9053ad1cc4f1a14fa344735c2a8780274b53e734fe28d252f602b4"
+    },
+    {
+      "architecture": "arm64e",
+      "url": "https://github.com/frida/frida/releases/download/17.25.0/frida-gum-devkit-17.25.0-ios-arm64e.tar.xz",
+      "archive_sha256": "bdd13b8761eb911ef62e26b45c8675ab222b4b85b56d742d13fb1ee4917fad8d",
+      "library_sha256": "ab4ac40f167fa45557b33882f9a6af2597026ff9b45172ffc9bba6b0db019c1e",
+      "header_sha256": "8b4b6dcf5e9053ad1cc4f1a14fa344735c2a8780274b53e734fe28d252f602b4"
+    }
+  ],
+  "capstone": {
+    "revision": "f919a03a5417e1c7ea3af7035225073437030ef2",
+    "wrap": "https://github.com/frida/frida-gum/blob/17.25.0/subprojects/capstone.wrap",
+    "license": "https://github.com/frida/capstone/blob/f919a03a5417e1c7ea3af7035225073437030ef2/LICENSE.TXT"
+  }
+}

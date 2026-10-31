@@ -1,0 +1,15 @@
+{
+  "theos": {
+    "url": "https://github.com/roothide/theos.git",
+    "commit": "3ac89c984ec652fd16bcd91b33ae16de45ce76fa"
+  },
+  "sdk": {
+    "url": "https://github.com/theos/sdks.git",
+    "commit": "0222fd5413cf4b9af096f37b4621afa2688572f7",
+    "directory": "iPhoneOS16.5.sdk"
+  },
+  "toolchain": {
+    "url": "https://github.com/L1ghtmann/llvm-project/releases/download/test-210562a/iOSToolchain-x86_64.tar.xz",
+    "sha256": "a72a7a577e2fbe2838b6b5e9c72034fa7d114af96f0e1d4b016f18730ce4056e"
+  }
+}

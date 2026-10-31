@@ -1,0 +1,9 @@
+Package: com.estk.recon
+Name: SIMHarbor
+Version: @VERSION@
+Architecture: iphoneos-arm64
+Description: SIMHarbor - removable eUICC profiles, QR download and management
+Maintainer: officeyutong
+Author: officeyutong
+Section: Tweaks
+Depends: mobilesubstrate (>= 0.9.5000)
