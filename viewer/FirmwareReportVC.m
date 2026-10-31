@@ -55,7 +55,7 @@
             self.text.text = [NSString
                 stringWithFormat:
                     @"%@\n\n%@",
-                    SHL(@"Addresses are discovered at runtime. Unknown firmware remains diagnostic-only until its ABI is approved."),
+                    SHL(@"Compatibility is detected at runtime from signatures, instructions and live objects. Device models, iOS versions and UUIDs are not allowlisted."),
                     body ?: SHL(@"Read failed")];
         });
     }];

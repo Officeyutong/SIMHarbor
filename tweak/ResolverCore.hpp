@@ -32,6 +32,7 @@ struct Plan {
     std::map<std::string, std::string> sources;
     std::vector<std::string> errors;
     bool complete = false;
+    bool signaturesValidated = false;
     void set(const std::string &, Address, const std::string &);
 };
 Plan resolve(const Image &cc, const Image &driver, const std::vector<Symbol> &, Address ready);

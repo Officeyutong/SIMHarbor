@@ -2,7 +2,7 @@
 
 **English** | [简体中文](IPC.zh-CN.md)
 
-This document describes the protocol introduced in SIMHarbor 1.3.8 and unchanged through 1.3.10. It is an internal protocol, without a negotiated protocol version. Sources: [app bridge](../viewer/Bridge.m), [extension](../tweak/Apdu.mm), [wire helpers](../shared/Wire.h), and [pairing generator](../scripts/generate_pairing_key.py).
+This document describes the protocol introduced in SIMHarbor 1.3.8 with unchanged framing/authentication through 1.3.14. It is an internal protocol, without a negotiated protocol version. Sources: [app bridge](../viewer/Bridge.m), [extension](../tweak/Apdu.mm), [wire helpers](../shared/Wire.h), and [pairing generator](../scripts/generate_pairing_key.py).
 
 ## Transport and ownership
 
@@ -52,7 +52,7 @@ The app adds a fresh UUID string as `id` to each request. The extension echoes i
 
 The only accepted AID is `a0000005591010ffffffff8900000100`. Slot numbers are logical identifiers; the resolver maps them to driver hardware slots. `status.ready` means object/slot availability, **not** that the modem reports an active SIM or that an eSIM profile is enabled. The initial selected logical slot is 2; `open` changes it. Resolver report fields are implementation diagnostics, not a stable external schema; see [Patchfinder](PATCHFINDER.md).
 
-`resolver` and `status` remain available without an approved ABI. Other operations fail with `Unsupported firmware. No card command was sent.` until the firmware is compatible. An inactive SIM can use the driver's direct management-channel path. Listing, downloading, enabling, disabling, renaming, deleting, notifications and custom DER commands are LPA operations in the app, expressed through `open` / `transmit` / `close`; they have no separate IPC opcodes.
+`resolver` and `status` remain available if runtime discovery fails. Other operations fail with `Runtime compatibility checks did not pass. Open Firmware resolver for details. No card command was sent.` until the adapter/signature/plan checks pass and hooks install. UUIDs never decide eligibility; live-object/slot checks are also required before opening a channel. An inactive SIM can use the driver's direct management-channel path. Listing, downloading, enabling, disabling, renaming, deleting, notifications and custom DER commands are LPA operations in the app, expressed through `open` / `transmit` / `close`; they have no separate IPC opcodes.
 
 Example request and reply (illustrative channel and ID):
 

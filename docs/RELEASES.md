@@ -1,5 +1,21 @@
 # Release notes / 版本记录
 
+## 1.3.14 — build 1314
+
+### English
+
+- Remove the CommCenter/driver UUID approval table. Device models, iOS build identities and UUIDs no longer decide eligibility; UUIDs remain diagnostic metadata. Attempt discovery on each system and enable transport only after compiled-adapter, complete driver-signature and unique code-plan checks pass. Card operations still require validated live objects and slot mapping.
+- Validate Registry exports in their actual owning image rather than requiring CommCenter ownership, support either available getter, verify required hook originals, and report signature checks, hook stage, Registry owner and live-object failure reasons. Allow discovery with 1–16 SimInfo nodes while retaining uniqueness checks.
+- Update bilingual Patchfinder/porting/IPC documentation and the firmware report. There is no UUID enrollment step. Runtime checks infer compatibility; matching signatures/layouts do not formally prove every private ABI. Existing ARM64 adapter and iOS 14+ UI API requirements remain implementation boundaries.
+- Image replay passes with previously unseen UUIDs and rejects changed callback signatures; existing ASLR, missing/ambiguous/interior-symbol and bounded-object tests pass. Three packages build and pass verification. On the roothide phone, native runtime resolution and a read-only profile-list snapshot pass with the new policy. This does not establish real-device validation of other firmware.
+
+### 简体中文
+
+- 移除 CommCenter/驱动 UUID 批准表。机型、iOS 构建身份和 UUID 不再决定是否启用；UUID 仅作诊断。每个系统都尝试发现，编译适配器、完整驱动签名和唯一代码计划检查通过后启用通道；操作卡片还需要通过活对象和卡槽映射验证。
+- Registry 导出按实际所属镜像验证，不再要求属于 CommCenter；支持可用的任一 getter，核对必需 Hook 的原始函数指针，并报告签名、Hook 阶段、Registry 所属镜像和活对象失败原因。接受 1–16 个 SimInfo 节点，同时保留唯一性检查。
+- 同步更新双语 Patchfinder、移植、IPC 文档和固件报告，不再需要登记 UUID。运行时检查属于兼容性推断，并非私有 ABI 的形式化证明；ARM64 适配器和 iOS 14+ 界面 API 仍是当前实现边界。
+- 镜像回放验证未知 UUID 可以解析、改变回调签名则拒绝；原有 ASLR、符号缺失/歧义/非起点及有界对象测试通过。三种包均构建并通过检查；roothide 真机在新策略下通过原生运行时解析和只读卡片列表快照测试，不代表其他固件已完成真机验证。
+
 ## 1.3.13 — build 1313
 
 ### English

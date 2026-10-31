@@ -308,18 +308,50 @@ Plan resolve(const Image &cc, const Image &dr, const std::vector<Symbol> &symbol
         return p;
     }
     std::vector<Address> start, command, close, callbacks;
+    auto signature = [](std::string name) {
+        name.erase(
+            std::remove_if(name.begin(), name.end(),
+                           [](unsigned char c) { return c == ' ' || c == '\t' || c == '\n'; }),
+            name.end());
+        return name;
+    };
+    // These are interface shapes used by this adapter, not firmware signatures.
+    const std::string prefix = "subscriber::EURSimCommandDriver::";
+    const std::string vector = "std::__1::vector<unsignedchar,std::__1::allocator<unsignedchar>>";
+    const std::string function = "std::__1::function<void(bool)>";
+    const std::string startSignature =
+        prefix + "sendSimApdu_start(subscriber::HardwareSimSlot," + vector +
+        "const&,void(subscriber::HardwareSimSlot,unsignedchar)block_pointer," + function + ")";
+    const std::string commandSignature =
+        prefix + "sendSimApdu_command(subscriber::HardwareSimSlot,unsignedchar,unsignedchar," +
+        vector + "&," + function + ")";
+    const std::string closeSignature =
+        prefix + "sendSimApdu_close(subscriber::HardwareSimSlot,unsignedchar,bool," + function +
+        ")";
     for (auto &s : symbols) {
         if (!dr.code(s.address) ||
             !std::binary_search(dr.functions.begin(), dr.functions.end(), s.address) ||
             s.name.find("subscriber::EURSimCommandDriver::") == std::string::npos)
             continue;
         bool block = s.name.find("block in") != std::string::npos;
-        if (!block && s.name.find("::sendSimApdu_start(") != std::string::npos)
+        if (!block && s.name.find("::sendSimApdu_start(") != std::string::npos) {
+            if (signature(s.name) != startSignature)
+                p.errors.push_back(
+                    "driverStart parameter signature is incompatible with the transport adapter");
             start.push_back(s.address);
-        if (!block && s.name.find("::sendSimApdu_command(") != std::string::npos)
+        }
+        if (!block && s.name.find("::sendSimApdu_command(") != std::string::npos) {
+            if (signature(s.name) != commandSignature)
+                p.errors.push_back(
+                    "driverCommand parameter signature is incompatible with the transport adapter");
             command.push_back(s.address);
-        if (!block && s.name.find("::sendSimApdu_close(") != std::string::npos)
+        }
+        if (!block && s.name.find("::sendSimApdu_close(") != std::string::npos) {
+            if (signature(s.name) != closeSignature)
+                p.errors.push_back(
+                    "driverClose parameter signature is incompatible with the transport adapter");
             close.push_back(s.address);
+        }
         if (block && s.name.find("::sendSimApdu_command(") != std::string::npos)
             callbacks.push_back(s.address);
     }
@@ -331,6 +363,7 @@ Plan resolve(const Image &cc, const Image &dr, const std::vector<Symbol> &symbol
           "Module-scoped private symbol + image/function boundary");
     if (!p.errors.empty())
         return p;
+    p.signaturesValidated = true;
     std::vector<Address> encoders, responses, qmis;
     std::map<Address, std::vector<Use>> uses;
     for (Address f : callbacks) {

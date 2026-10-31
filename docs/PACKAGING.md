@@ -37,6 +37,6 @@ Each invocation cleans the build before changing schemes. Verification checks re
 
 ## CI and compatibility / CI 与兼容范围
 
-Every push runs three independent build jobs and uploads one artifact per scheme, including diagnostics on failure. Releases remain limited to version changes on the default branch, require all three jobs to succeed, and publish all three debs together with verified checksums. A package scheme does not bypass the private firmware ABI gate. The available phone tests only roothide; rootful/rootless package validation alone does not establish device compatibility on those jailbreaks.
+Every push runs three independent build jobs and uploads one artifact per scheme, including diagnostics on failure. Releases remain limited to version changes on the default branch, require all three jobs to succeed, and publish all three debs together with verified checksums. Each package uses the same runtime capability checks; there is no firmware UUID allowlist. The available phone tests only roothide; rootful/rootless package validation alone does not establish device compatibility on those jailbreaks.
 
-每次 push 运行三个独立任务，每种方案上传一份 artifact，失败时上传已有诊断。Release 仍只在默认分支版本号变化时触发，要求三个任务全部成功，并同时发布三种 deb 和经过验证的校验和。打包方案不会绕过私有固件 ABI 门禁。现有手机只能测试 roothide；rootful/rootless 的包结构检查不代表已验证对应越狱环境的真机兼容性。
+每次 push 运行三个独立任务，每种方案上传一份 artifact，失败时上传已有诊断。Release 仍只在默认分支版本号变化时触发，要求三个任务全部成功，并同时发布三种 deb 和经过验证的校验和。三种包均使用同一套运行时能力检查，不再使用固件 UUID 白名单。现有手机只能测试 roothide；rootful/rootless 的包结构检查不代表已验证对应越狱环境的真机兼容性。

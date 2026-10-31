@@ -244,7 +244,6 @@
 "No matching documents." = "没有匹配的文档。";
 
 "Firmware resolver" = "固件解析报告";
-"Addresses are discovered at runtime. Unknown firmware remains diagnostic-only until its ABI is approved." = "地址在运行时识别。未批准 ABI 的固件仅显示诊断，不向卡片发送命令。";
 
 "About" = "关于";
 "Removable eUICC profile manager" = "可移除 eUICC 卡片管理工具";
@@ -280,3 +279,5 @@
 "The operator rejected this activation code. It may already be used or no longer valid." = "运营商拒绝了此激活码，它可能已被使用或已经失效。";
 "The operator rejected the confirmation code. Check it before trying again." = "运营商拒绝了确认码，请核对后再重试。";
 "HTTP transport failed." = "网络请求失败，请检查网络连接；错误详情中包含具体原因。";
+"Runtime compatibility checks did not pass. Open Firmware resolver for details. No card command was sent." = "运行时兼容性检查未通过，请打开固件解析报告查看具体原因。尚未发送卡片命令。";
+"Compatibility is detected at runtime from signatures, instructions and live objects. Device models, iOS versions and UUIDs are not allowlisted." = "通过运行时签名、指令和活对象检查判断兼容性，不使用机型、iOS 版本或 UUID 白名单。";

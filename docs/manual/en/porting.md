@@ -34,14 +34,14 @@ These are observations on iPhone14,5 / iOS 17.2.1, not configuration values or p
 
 ## Supporting another build
 
-1. Record the device, baseband, architecture and both image UUIDs. First run a diagnostic-only build and save the report. Unknown UUID pairs can be analyzed but install no hooks and send no card commands.
-2. If code discovery succeeds uniquely, verify private signatures, argument order, C++ value/reference passing, block semantics, callback lifetime and PAC. The native build measures shared_ptr as 16 bytes and std::function as 32 bytes. A 48-byte buffer in early Frida research was not sizeof(std::function). Matching sizes alone do not prove ABI compatibility.
-3. Add the verified UUID pair and sizes to SHApprovedAbis in shared/Firmware.h. Normally no numerical offsets need entering. When a pattern changes, update its semantic rule and add image replay/negative cases while preserving old-build regression coverage.
+1. Install the normal build and save its runtime report. Record device, baseband, architecture and UUIDs for diagnosis. Previously unseen UUIDs follow the same discovery path; no approval-table edit is needed.
+2. Check compiledAbiCompatible, signaturesValidated, abiCompatible, codeResolved, hookStage and objectLayoutResolved. The adapter checks its own C++ layout and the complete driver parameter signatures. These checks infer compatibility; matching sizes/signatures do not formally prove every private ABI or slot semantic.
+3. There is no UUID approval table. If discovery fails, use its reported evidence to update the affected semantic rule or adapter, then add image replay and negative cases. Do not substitute old numerical offsets or force a failed plan to complete.
 4. Verify injection, arm64/arm64e, Substrate and rootless/roothide packaging. Start with live-object inspection, logical/hardware slot mapping, Get EID, listing, 61xx, channel close and disconnect recovery.
 5. Then use an authorized, redownloadable profile to test download, enable, disable, restore and delete, comparing the original baseline individually. The default slot 2 does not identify physical slots on other devices.
 6. Test wireless policy, GSMA TLS, camera/photos, foreground/background and restart separately. Standard LPA/UI code is usually reusable. Internal eUICC, MEP, other basebands and USB readers require separate transport work.
 
-Discovery reduces address/field maintenance; it cannot establish calling conventions or slot semantics automatically. Only the UUID pair above is approved. Missing cached symbols, stripped RTTI, changed instructions or ambiguous objects reject card operations. Live-object rules currently require 2-16 SimInfo nodes and a unique hardware-slot field with values 1-3. Single-node or different mappings need revised rules and device validation.
+Discovery determines eligibility from available runtime evidence, not firmware identity. Missing symbols, stripped RTTI, changed signatures/instructions or ambiguous objects reject card operations with diagnostics. Live-object rules accept 1-16 SimInfo nodes and require a unique hardware-slot field with values 1-3; a single node may still leave several indistinguishable candidates. Different slot mappings need revised rules and device validation.
 
 ## Resource and validation limits
 

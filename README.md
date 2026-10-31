@@ -6,7 +6,7 @@ SIMHarbor (芯舟) is a native app and CommCenter extension for managing removab
 
 Features include profile listing, downloading, enabling/disabling, renaming, deletion, notification management, camera and image QR scanning, continuous and tap-to-focus, English and Chinese interfaces, an offline user guide, a raw APDU/DER console, and an Error details tab that opens automatically for failed profile operations. Duplicate installs and other recognized failures have actionable messages; the details retain protocol diagnostics and support copying and clearing. Normal use requires neither a computer nor Frida server.
 
-The currently verified private ABI targets iPhone 13 / iOS 17.2.1 (21C66), with roothide. Addresses, fields, and live objects are resolved at runtime. Unapproved image UUID pairs provide diagnostics only and cannot operate on the card. Other firmware requires validation; removing the ABI gate is insufficient. The About page shows the installed version, build number, and open-source licenses.
+Compatibility is inferred at runtime by the Patchfinder, without a device-model, iOS-build or image-UUID allowlist. A complete, unique code plan and matching interface signatures enable transport hooks; live-object and slot validation must also pass before card commands. UUIDs are diagnostic metadata only. iPhone 13 / iOS 17.2.1 (21C66), roothide remains the device-tested baseline, not a prerequisite. Other firmware still needs validation. The app currently uses iOS 14+ UI APIs and an ARM64 transport adapter.
 
 ## Build on Linux
 
@@ -23,7 +23,7 @@ python3 tests/check_offline.py
 bash build.sh
 ```
 
-The default build produces a roothide deb in `packages/`. Set `SIMHARBOR_SCHEME=rootful`, `rootless`, or `roothide` to select a package. The same pinned roothide/Theos supports all three schemes, following the [roothide Developer README](https://github.com/roothide/Developer). See [package variants](docs/PACKAGING.md) for architectures, paths and verification commands. Packaging support does not approve additional firmware ABIs.
+The default build produces a roothide deb in `packages/`. Set `SIMHARBOR_SCHEME=rootful`, `rootless`, or `roothide` to select a package. The same pinned roothide/Theos supports all three schemes, following the [roothide Developer README](https://github.com/roothide/Developer). See [package variants](docs/PACKAGING.md) for architectures, paths and verification commands. Packaging does not replace runtime compatibility checks.
 
 Linux setup includes `libplist-utils` and its runtime dependency. Before compiling, the build exercises the `plistutil` selected by its toolchain PATH on XML and OpenStep `.strings` files, verifying binary conversion and Unicode values. Missing converter libraries are reported before compilation, including when reusing a cached toolchain.
 
@@ -41,7 +41,7 @@ GitHub Actions workflow: `.github/workflows/build.yml`.
 
 Releases require all three variants to succeed. Assets include `SIMHarbor_VERSION_rootful.deb`, `SIMHarbor_VERSION_rootless.deb`, `SIMHarbor_VERSION_roothide.deb`, a combined `SHA256SUMS`, and per-scheme build metadata.
 
-To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.13 (build 1313). See the [release notes](docs/RELEASES.md).
+To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.14 (build 1314). See the [release notes](docs/RELEASES.md).
 
 ## Tests and validation scope
 
@@ -69,7 +69,7 @@ Project-owned native sources use clang-format 22 and `.clang-format`; Python use
 
 - `viewer/`: UIKit app, LPA, QR scanning, logs, a bilingual user guide, and About page.
 - `tweak/`: CommCenter transport and Capstone/RTTI/call-graph resolution.
-- `shared/`: IPC protocol and approved ABI definitions.
+- `shared/`: IPC protocol and compiled transport-adapter layout checks.
 - `docs/manual/`: the bundled English and Chinese user guide, plus repository-only technical articles.
 - `ci/`: public dependency setup, release policy, and artifact verification.
 - `vendor/`: third-party sources, licenses, and provenance. Gum devkit headers and libraries are downloaded and verified during the build.

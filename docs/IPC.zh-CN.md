@@ -2,7 +2,7 @@
 
 [English](IPC.md) | **简体中文**
 
-本文描述 SIMHarbor 1.3.8 引入、至 1.3.10 保持不变的通信协议。这是一套没有协议版本协商的内部协议。对应源码：[App 桥接层](../viewer/Bridge.m)、[扩展](../tweak/Apdu.mm)、[报文辅助函数](../shared/Wire.h)、[配对值生成器](../scripts/generate_pairing_key.py)。
+本文描述 SIMHarbor 1.3.8 引入、至 1.3.14 保持报文边界及认证机制不变的通信协议。这是一套没有协议版本协商的内部协议。对应源码：[App 桥接层](../viewer/Bridge.m)、[扩展](../tweak/Apdu.mm)、[报文辅助函数](../shared/Wire.h)、[配对值生成器](../scripts/generate_pairing_key.py)。
 
 ## 传输与连接方向
 
@@ -52,7 +52,7 @@ App 为每个请求添加新的 UUID 字符串 `id`，扩展在回复中原样�
 
 唯一允许的 AID 是 `a0000005591010ffffffff8900000100`。请求中的卡槽是逻辑编号，由解析器映射为驱动硬件卡槽。`status.ready` 表示对象和卡槽可用，**不代表**基带报告 SIM 已激活，也不代表某个 eSIM profile 已启用。初始选择的逻辑卡槽为 2，`open` 会更新该选择。解析器报告属于实现诊断，不是稳定的外部字段约定，详见 [Patchfinder 文档](PATCHFINDER.zh-CN.md)。
 
-即使 ABI 未获批准，`resolver` 和 `status` 仍可用。固件兼容检查通过前，其他操作返回 `Unsupported firmware. No card command was sent.`。SIM 未激活时可以通过驱动直接打开管理通道。列表、下载、启用、停用、重命名、删除、通知及自定义 DER 命令均由 App 内 LPA 实现，再转换为 `open` / `transmit` / `close`，没有独立 IPC 操作码。
+运行时发现失败时，`resolver` 和 `status` 仍可用。适配器布局、接口签名、代码计划及 Hook 安装通过前，其他操作返回 `Runtime compatibility checks did not pass. Open Firmware resolver for details. No card command was sent.`。UUID 不参与启用判断，打开通道前还要通过活对象和卡槽检查。SIM 未激活时可以通过驱动直接打开管理通道。列表、下载、启用、停用、重命名、删除、通知及自定义 DER 命令均由 App 内 LPA 实现，再转换为 `open` / `transmit` / `close`，没有独立 IPC 操作码。
 
 请求与回复示例（ID、通道号仅作说明）：
 

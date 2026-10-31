@@ -164,6 +164,29 @@ static uint64_t footprint() {
                ? info.phys_footprint
                : 0;
 }
+static bool registryExport(uintptr_t address, std::string &ownerName) {
+    if (!address || (address & 3))
+        return false;
+    Dl_info symbol = {};
+    if (!dladdr((void *)address, &symbol) || !symbol.dli_fbase)
+        return false;
+    for (uint32_t i = 0; i < _dyld_image_count(); i++) {
+        if ((const void *)_dyld_get_image_header(i) != symbol.dli_fbase)
+            continue;
+        Image owner = image(i);
+        if (!owner.code(address))
+            return false;
+        bool start = std::binary_search(owner.functions.begin(), owner.functions.end(), address);
+        bool exportedStart =
+            symbol.dli_saddr && SHCleanPointer((uintptr_t)symbol.dli_saddr) == address;
+        if (!start && !exportedStart)
+            return false;
+        const char *last = strrchr(owner.name.c_str(), '/');
+        ownerName = last ? last + 1 : owner.name;
+        return true;
+    }
+    return false;
+}
 std::shared_ptr<SHFirmware> SHResolveFirmware() {
     auto fw = std::make_shared<SHFirmware>();
     double begin = CFAbsoluteTimeGetCurrent();
@@ -177,22 +200,47 @@ std::shared_ptr<SHFirmware> SHResolveFirmware() {
         if (!strcmp(last, "libCommCenterMCommandDrivers.dylib"))
             fw->driver = image(i);
     }
-    // UUIDs approve the private C++ calling convention, not numerical locations.
-    fw->approved = SHApproveAbi(fw->cc.uuid.c_str(), fw->driver.uuid.c_str(),
-                                sizeof(std::shared_ptr<void>), sizeof(std::function<void(bool)>));
+    fw->compiledAbiCompatible = SHRuntimeAbiLayoutCompatible(
+        sizeof(void *), sizeof(std::shared_ptr<void>), sizeof(std::function<void(bool)>));
     fw->getter = SHCleanPointer((uintptr_t)dlsym(RTLD_DEFAULT, "_ZNK8Registry13getServiceMapEv"));
     fw->mutableGetter =
         SHCleanPointer((uintptr_t)dlsym(RTLD_DEFAULT, "_ZN8Registry13getServiceMapEv"));
+    if (!fw->getter)
+        fw->getter = fw->mutableGetter;
+    if (!fw->compiledAbiCompatible) {
+        fw->plan.errors.push_back(
+            "Compiled C++ object layout is incompatible with the ARM64 adapter");
+        return fw;
+    }
     if (!fw->cc.base || !fw->driver.base || !fw->getter) {
         fw->plan.errors.push_back("Required image or Registry export is missing");
         return fw;
     }
+    if (((const mach_header_64 *)fw->cc.base)->cputype != CPU_TYPE_ARM64 ||
+        ((const mach_header_64 *)fw->driver.base)->cputype != CPU_TYPE_ARM64) {
+        fw->plan.errors.push_back("Loaded images are not ARM64");
+        return fw;
+    }
+    std::string mutableOwner;
+    bool mutableValid = registryExport(fw->mutableGetter, mutableOwner);
+    if (!registryExport(fw->getter, fw->registryImage)) {
+        if (!mutableValid) {
+            fw->plan.errors.push_back(
+                "No Registry getter has a valid owning image and function/export boundary");
+            return fw;
+        }
+        fw->getter = fw->mutableGetter;
+        fw->registryImage = mutableOwner;
+    }
+    if (!mutableValid)
+        fw->mutableGetter = 0;
     std::vector<Symbol> symbols = driverSymbols(fw->driver);
     fw->driverSymbolCount = symbols.size();
     fw->maxMeasuredFootprintBytes = std::max(fw->maxMeasuredFootprintBytes, footprint());
     Address ready =
         SHCleanPointer((uintptr_t)dlsym(RTLD_DEFAULT, "_ZN10subscriber10isSimReadyENS_8SimStateE"));
     fw->plan = resolve(fw->cc, fw->driver, symbols, ready);
+    fw->abiCompatible = fw->compiledAbiCompatible && fw->plan.signaturesValidated;
     fw->analysisMilliseconds = (CFAbsoluteTimeGetCurrent() - begin) * 1000;
     fw->maxMeasuredFootprintBytes = std::max(fw->maxMeasuredFootprintBytes, footprint());
     return fw;
@@ -239,7 +287,7 @@ bool SHInferObjectLayout(SHFirmware &fw, uintptr_t object) {
         span[1] - span[0] > 16 * sizeof(std::shared_ptr<void>))
         return false;
     size_t count = (span[1] - span[0]) / sizeof(std::shared_ptr<void>);
-    if (count < 2)
+    if (!count)
         return false;
     std::vector<uintptr_t> infos;
     for (size_t i = 0; i < count; i++) {
@@ -312,6 +360,30 @@ NSDictionary *SHResolverReport(const std::shared_ptr<SHFirmware> &fw) {
     NSMutableArray *errors = [NSMutableArray array];
     for (auto &s : fw->plan.errors)
         [errors addObject:@(s.c_str())];
+    if (fw->hookStage.load() == 3)
+        [errors addObject:
+                    @"Transport hook installation did not produce all required original functions"];
+    NSString *objectState = @"Waiting for the Registry service map";
+    switch (fw->objectStage.load()) {
+    case 1:
+        objectState = @"Waiting for a unique live controller";
+        break;
+    case 2:
+        objectState = @"Inspecting the live driver pointer";
+        break;
+    case 3:
+        objectState = @"Live driver pointer is missing or ambiguous";
+        break;
+    case 4:
+        objectState = @"SIM information vector is not ready or could not be validated";
+        break;
+    case 6:
+        objectState = @"Hardware-slot field is missing or ambiguous";
+        break;
+    case 7:
+        objectState = @"Live object layout validated";
+        break;
+    }
     return @{
         @"state" : fw->plan.complete ? @"resolved" : @"unresolved",
         @"engine" : @"CoreSymbolication (driver only) + Frida Capstone 5",
@@ -320,16 +392,22 @@ NSDictionary *SHResolverReport(const std::shared_ptr<SHFirmware> &fw) {
         @"driverSymbolCount" : @(fw->driverSymbolCount),
         @"commcenterUUID" : @(fw->cc.uuid.c_str()),
         @"driverUUID" : @(fw->driver.uuid.c_str()),
-        @"abiApproved" : @(fw->approved),
+        @"registryImage" : @(fw->registryImage.c_str()),
+        @"abiCompatible" : @(fw->abiCompatible),
+        @"compiledAbiCompatible" : @(fw->compiledAbiCompatible),
+        @"signaturesValidated" : @(fw->plan.signaturesValidated),
+        @"hookStage" : @(fw->hookStage.load()),
         @"sharedPtrBytes" : @(sizeof(std::shared_ptr<void>)),
         @"functionBytes" : @(sizeof(std::function<void(bool)>)),
         @"codeResolved" : @(fw->plan.complete),
         @"objectDiscoveryStage" : @(fw->objectStage.load()),
+        @"objectDiscovery" : objectState,
         @"driverCandidates" : @(fw->driverCandidates.load()),
         @"hardwareCandidates" : @(fw->hardwareCandidates.load()),
         @"objectLayoutResolved" : @(fw->driverMember.load() && fw->hardwareSlot.load()),
         @"values" : values,
         @"errors" : errors,
-        @"policy" : @"Unknown UUID pairs are diagnostic-only; no numerical-offset fallback"
+        @"policy" :
+            @"Runtime capability discovery; UUIDs are diagnostic metadata only; no numerical-offset fallback"
     };
 }

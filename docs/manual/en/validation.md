@@ -4,7 +4,7 @@
 
 On iPhone 13 (iPhone14,5), iOS 17.2.1 / 21C66 with roothide, all 18 code locations/fields and two live-object fields resolve uniquely. Native profile/details reads and test notifications pass. The test profiles match the immediate pretest baseline individually; the original test profile remains enabled. No download, enable/disable, deletion or reset was performed.
 
-Linux image replay and a standalone iPhone program pass real-image, ASLR relocation, missing/ambiguous/interior-symbol, unreadable-image and cyclic/ambiguous-object-graph cases. Linux also passes ASan/UBSan. Unknown UUIDs and mismatched object sizes reject private-ABI approval.
+Linux image replay and a standalone iPhone program pass real-image, ASLR relocation, missing/ambiguous/interior-symbol, unreadable-image and cyclic/ambiguous-object-graph cases. Linux also passes ASan/UBSan. Since 1.3.14, unknown UUIDs are accepted when runtime evidence matches; incompatible compiled layouts or changed driver signatures remain rejected.
 
 Early process-wide Gum enumeration caused memory-highwater termination and was rolled back to 1.2.2. Subsequent fixes explicitly register Capstone ARM64, return initialization failures without exception unwinding and exclude shared_ptr control blocks from concrete-driver RTTI matching. The final design avoids global symbol caches and decodes incrementally to reduce temporary allocations.
 
@@ -47,4 +47,4 @@ The comparison used the official OpenEUICC repository at `https://gitea.angry.im
 
 ## Remaining coverage
 
-Other devices/firmware, all operators, installation interruption, card removal and prolonged background recovery have not been fully covered. UUID checks prevent applying existing offsets to unmatched firmware. Start the next device checks with read-only Get EID, inspect the trace and channel closure, then consider explicitly authorized writes.
+Other devices/firmware, all operators, installation interruption, card removal and prolonged background recovery have not been fully covered. Runtime pattern and object checks prevent substituting old offsets when discovery fails. Start the next device checks with read-only Get EID, inspect the trace and channel closure, then consider explicitly authorized writes.

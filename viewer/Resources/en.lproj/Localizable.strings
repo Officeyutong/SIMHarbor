@@ -244,7 +244,6 @@
 "No matching documents." = "No matching documents.";
 
 "Firmware resolver" = "Firmware resolver";
-"Addresses are discovered at runtime. Unknown firmware remains diagnostic-only until its ABI is approved." = "Addresses are discovered at runtime. Unknown firmware remains diagnostic-only until its ABI is approved.";
 
 "About" = "About";
 "Removable eUICC profile manager" = "Removable eUICC profile manager";
@@ -280,3 +279,5 @@
 "The operator rejected this activation code. It may already be used or no longer valid." = "The operator rejected this activation code. It may already be used or no longer valid.";
 "The operator rejected the confirmation code. Check it before trying again." = "The operator rejected the confirmation code. Check it before trying again.";
 "HTTP transport failed." = "HTTP transport failed.";
+"Runtime compatibility checks did not pass. Open Firmware resolver for details. No card command was sent." = "Runtime compatibility checks did not pass. Open Firmware resolver for details. No card command was sent.";
+"Compatibility is detected at runtime from signatures, instructions and live objects. Device models, iOS versions and UUIDs are not allowlisted." = "Compatibility is detected at runtime from signatures, instructions and live objects. Device models, iOS versions and UUIDs are not allowlisted.";

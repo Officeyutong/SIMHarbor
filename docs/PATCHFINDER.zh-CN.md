@@ -6,14 +6,14 @@ SIMHarbor 的 Patchfinder 用于定位 CommCenter 通道依赖的私有入口和
 
 实现分为两部分：[RuntimeResolver.mm](../tweak/RuntimeResolver.mm) 负责 Darwin 运行时与活内存访问，[ResolverCore.cpp](../tweak/ResolverCore.cpp) 负责镜像分析和有界控制器搜索。[ResolverCore.hpp](../tweak/ResolverCore.hpp) 定义 `Image`、`Symbol` 和 `Plan` 数据结构。
 
-## 定位与批准的关系
+## 定位与运行时启用条件
 
 ```mermaid
 flowchart TD
     A[已加载的 CommCenter 与驱动] --> B[Mach-O 元数据和驱动符号]
     B --> C[Capstone、RTTI 与引用模式]
     C --> D[18 项代码解析计划]
-    D --> E{ABI 已批准且计划完整?}
+    D --> E{签名、适配器布局与计划通过?}
     E -- 否 --> F[输出诊断报告]
     E -- 是 --> G[安装 Hook 并捕获 Registry map]
     G --> H[有界活对象检查]
@@ -22,7 +22,7 @@ flowchart TD
     I -- 是 --> J[卡片通道可以继续检查和操作]
 ```
 
-找到位置和允许调用接口是两项独立判断。未知镜像 UUID 对可以进行诊断分析，但不会安装通道 Hook。ABI 已批准且代码计划完整后才安装 Hook；卡片操作还要求活对象和卡槽校验通过。因此，报告中“代码已解析”本身不能证明卡片通道已经可用。
+是否启用由运行时证据决定，不使用机型、iOS 构建或 UUID 白名单。安装 Hook 前检查编译适配器布局、完整驱动签名、函数边界及完整且唯一的代码计划；操作卡片前还要通过活对象和卡槽校验。UUID 只标识诊断样本，“代码已解析”本身仍不代表卡片通道可用。
 
 ## 1. 描述已加载镜像
 
@@ -92,7 +92,7 @@ ABI 和代码计划通过后，扩展 Hook 导出的 Registry getter，在 CommC
 `SHInferObjectLayout` 再推导两项字段：
 
 1. **驱动成员位置：** 按指针对齐扫描控制器前 512 字节。指向对象的 RTTI 必须精确等于具体驱动类型 `N10subscriber19EURSimCommandDriverE`。shared-pointer 控制块的类型名也可能包含驱动类名，因此不能只做子串匹配。
-2. **硬件槽字段：** 按本次编译的 `shared_ptr` 步长读取已发现的 SimInfo vector；当前要求 2–16 个节点。扫描各对象前 128 字节中的对齐整数字段，排除逻辑槽字段，只接受一个在各节点间取不同值、且值域为 1–3 的候选字段。
+2. **硬件槽字段：** 按本次编译的 `shared_ptr` 步长读取已发现的 SimInfo vector；当前接受 1–16 个节点。扫描各对象前 128 字节中的对齐整数字段，排除逻辑槽字段，只接受一个在各节点间取不同值、且值域为 1–3 的候选字段。
 
 这些字段关联是启发式规则，不能单独证明新设备的卡槽语义。初始化期间可能出现多个候选，此时通道拒绝使用该布局，等待之后重新检查。逻辑槽与硬件槽始终分别处理。
 
@@ -112,15 +112,17 @@ ABI 和代码计划通过后，扩展 Hook 导出的 Registry getter，在 CommC
 
 核心的 `only` 辅助函数会去重，并要求恰好一个不同的候选值。锚点缺失、候选歧义、捕获布局不兼容或解码失败都会留下不完整计划和明确错误；不会猜测数值偏移。预期的匹配失败显式返回状态或错误，不依赖 C++ 异常展开。
 
-固件报告包含 UUID、`abiApproved`、`codeResolved`、`objectLayoutResolved`、各项依据、候选数量和错误。`analysisMilliseconds` 测量静态解析阶段；`maxMeasuredFootprintBytes` 是若干阶段采样的最大值，不是连续测得的内存峰值。
+固件报告包含 UUID、`compiledAbiCompatible`、`signaturesValidated`、`abiCompatible`、`hookStage`、`codeResolved`、`objectLayoutResolved`、各项依据、候选数量和错误。`analysisMilliseconds` 测量静态解析阶段；`maxMeasuredFootprintBytes` 是若干阶段采样的最大值，不是连续测得的内存峰值。
 
 模块级符号查询和迭代解码减少 CommCenter 中的临时内存占用。早期全进程枚举曾超出该进程的内存预算，因此生产实现已移除这种路径。
 
 ## 移植与验证
 
-[shared/Firmware.h](../shared/Firmware.h) 批准具体 CommCenter/驱动 UUID 对及预期 C++ 对象大小。大小一致不代表调用约定一致；新增批准项之前，仍需人工核对私有签名、按值/引用传参、block 捕获、回调生命周期、PAC 和卡槽含义。
+从 1.3.14 起，驱动打开/发送/关闭符号还必须匹配完整解修饰参数签名，包括槽位类型、vector 引用、回调/block 参数和 libc++ 命名空间；比较时忽略空白差异，仅匹配方法名不够。Registry getter 按实际所属加载镜像验证，要求位于可执行段且命中函数起点或精确导出符号边界；`registryImage` 表示所属镜像。`hookStage` 的 0 表示尚未安装、1 表示正在安装、2 表示必需的原始函数指针均已取得、3 表示失败。活对象诊断会说明还缺少哪一环。
 
-符号变化、RTTI 裁剪、编译器输出改变、函数过大、服务 map 形态变化、只有一个 SimInfo 节点或槽位字段不唯一，都可能需要扩展规则。应保留歧义拒绝机制，补充镜像回放和反例，并确认旧构建回归通过后再批准新目标。
+[shared/Firmware.h](../shared/Firmware.h) 只检查编译后的 ARM64 适配器布局，不检查固件身份。驱动完整解修饰签名与适配器接口形状比较，Capstone 和活对象检查补充证据；无需登记 UUID。这属于兼容性推断，不是对私有调用约定、回调生命周期或卡槽语义的形式化证明。
+
+符号变化、RTTI 裁剪、编译器输出改变、函数过大、服务 map 形态变化、SimInfo 或槽位字段不唯一，都可能需要扩展规则。应保留歧义拒绝机制，补充镜像回放和反例，并确认旧构建回归通过后再宣称新目标已经验证。
 
 [tests/test_resolver.cpp](../tests/test_resolver.cpp) 使用授权采集的镜像测试已知结果、ASLR 重定位、符号缺失/歧义/非入口地址、不可读镜像及循环/歧义对象链。镜像属于私有资料，不进入 Git 和 CI。该回放不覆盖 Darwin 符号查询、全部活布局启发式、Hook 执行或完整 profile 管理，这些还需要单独真机检查。另见[移植说明](ARCHITECTURE_PORTING.md)和[验证范围](VALIDATION.md)。
 

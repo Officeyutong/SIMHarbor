@@ -27,7 +27,7 @@ When the SIM is inactive, the extension opens the management channel through the
 
 The app listens on `127.0.0.1:18099`. Bounded newline-delimited JSON carries requests and matching replies. A random challenge and role-separated HMAC authenticate both peers. The listener is not exposed remotely. This pairing does not isolate jailbreak root privileges; the app and extension are built with the same project pairing key.
 
-The extension derives addresses and fields at runtime with driver-scoped CoreSymbolication, Frida devkit Capstone, RTTI and live-object checks. Both image UUIDs and the private ABI must be approved before hooks or card commands. The Firmware resolver screen exposes evidence; the Porting article explains the rules and remaining manual work.
+The extension derives addresses and fields at runtime with driver-scoped CoreSymbolication, Frida devkit Capstone, RTTI and live-object checks. UUIDs are recorded without filtering. Runtime signature and complete-plan checks precede hooks; live-object and slot checks precede card commands. The Firmware resolver screen exposes evidence; the Porting article explains the rules and remaining manual work.
 
 ## Network and logging
 

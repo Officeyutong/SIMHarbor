@@ -1,4 +1,4 @@
-// SIMHarbor native persistent APDU bridge. Runtime locations; explicit ABI approval.
+// SIMHarbor native persistent APDU bridge. Runtime capability discovery.
 #import <Foundation/Foundation.h>
 #import <substrate.h>
 #import <mach-o/dyld.h>
@@ -191,7 +191,8 @@ static NSDictionary *handle(NSDictionary *q) {
         };
     }
     if (!compatible)
-        return fail(@"Unsupported firmware. No card command was sent.");
+        return fail(
+            @"Runtime compatibility checks did not pass. Open Firmware resolver for details. No card command was sent.");
     if ([op isEqual:@"close"])
         return closeSession()
                    ? @{@"ok" : @YES}
@@ -355,9 +356,10 @@ extern "C" void estk_apdu_start(void) {
             @autoreleasepool {
                 auto fw = SHResolveFirmware();
                 std::atomic_store(&firmware, fw);
-                if (!fw->approved || !fw->plan.complete)
+                if (!fw->abiCompatible || !fw->plan.complete)
                     return;
                 resolved = fw->plan;
+                fw->hookStage = 1;
                 MSHookFunction((void *)fw->getter, (void *)serviceMapHook,
                                (void **)&serviceMapOrig);
                 if (fw->mutableGetter && fw->mutableGetter != fw->getter)
@@ -374,7 +376,12 @@ extern "C" void estk_apdu_start(void) {
                                (void **)&closeOrig);
                 MSHookFunction((void *)location("completion"), (void *)completionHook,
                                (void **)&completionOrig);
-                compatible = true;
+                bool installed = serviceMapOrig && commandOrig && encodeOrig && responseOrig &&
+                                 qmiOrig && closeOrig && completionOrig &&
+                                 (!fw->mutableGetter || fw->mutableGetter == fw->getter ||
+                                  serviceMapMutableOrig);
+                fw->hookStage = installed ? 2 : 3;
+                compatible = installed;
             }
         });
     });

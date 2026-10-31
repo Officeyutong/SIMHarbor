@@ -6,7 +6,7 @@
 
 支持卡片列表、下载、启用/停用、昵称、删除、通知管理、二维码相机/图片识别、连续及点击对焦、中英文界面、离线使用说明和原始 APDU/DER 控制台。日常运行不需要电脑或 Frida server。
 
-当前已核对的私有 ABI：iPhone 13 / iOS 17.2.1（21C66），roothide。运行时解析地址、字段和活对象；未批准的镜像 UUID 对只提供诊断，不操作卡片。其他固件需要验证，不能仅移除 ABI 门禁。关于页面显示安装版本、构建号和开源许可。
+兼容性由 Patchfinder 在运行时推断，不再使用机型、iOS 构建或镜像 UUID 白名单。代码计划完整且唯一、接口签名匹配后安装通道 Hook；活对象和卡槽检查通过后才发送卡片命令。UUID 仅用于诊断。iPhone 13 / iOS 17.2.1（21C66）、roothide 是实测基线，不是运行前提；其他固件仍需验证。App 目前使用 iOS 14+ 界面 API 和 ARM64 通道适配器。
 
 ## Linux 构建
 
@@ -23,7 +23,7 @@ python3 tests/check_offline.py
 bash build.sh
 ```
 
-默认构建 roothide deb，输出在 `packages/`。通过 `SIMHARBOR_SCHEME=rootful`、`rootless` 或 `roothide` 选择方案。同一套固定版本 roothide/Theos 按 [roothide Developer README](https://github.com/roothide/Developer) 构建三种方案；架构、路径和校验命令见[安装包方案](docs/PACKAGING.md)。支持打包不代表已批准更多固件 ABI。
+默认构建 roothide deb，输出在 `packages/`。通过 `SIMHARBOR_SCHEME=rootful`、`rootless` 或 `roothide` 选择方案。同一套固定版本 roothide/Theos 按 [roothide Developer README](https://github.com/roothide/Developer) 构建三种方案；架构、路径和校验命令见[安装包方案](docs/PACKAGING.md)。打包方案不能代替运行时兼容性检查。
 
 Linux 依赖包含 `libplist-utils` 及其运行库。编译前会实际调用构建工具链 PATH 选中的 `plistutil`，转换 XML 与 OpenStep `.strings` 文件，并检查二进制格式和中文值。即使复用工具链缓存，缺少运行库也会在编译前直接报出。
 
@@ -41,7 +41,7 @@ GitHub Actions 文件：`.github/workflows/build.yml`。
 
 Release 要求三种构建全部成功，包含三个 `SIMHarbor_VERSION_方案.deb`、合并的 `SHA256SUMS` 以及各方案的构建信息。
 
-发布新版时修改 `VERSION`，并按需递增 `BUILD_NUMBER`。`control` 和 App 的 `Info.plist` 从 `packaging/` 模板自动生成，无需手动同步。源码版本目前为 1.3.13（构建号 1313），变更见[版本记录](docs/RELEASES.md)。
+发布新版时修改 `VERSION`，并按需递增 `BUILD_NUMBER`。`control` 和 App 的 `Info.plist` 从 `packaging/` 模板自动生成，无需手动同步。源码版本目前为 1.3.14（构建号 1314），变更见[版本记录](docs/RELEASES.md)。
 
 ## 测试与验证范围
 
@@ -69,7 +69,7 @@ App 仅内置双语使用说明，技术文章保留在仓库中：
 
 - `viewer/`：UIKit App、LPA、二维码、日志、双语使用说明、关于页。
 - `tweak/`：CommCenter 通道、Capstone/RTTI/调用图定位。
-- `shared/`：协议与 ABI 批准表。
+- `shared/`：协议与通道适配器对象布局检查。
 - `docs/manual/`：随包中英文使用说明，以及仅供仓库阅读的技术文章。
 - `ci/`：公开依赖准备、版本发布策略、产物核对。
 - `vendor/`：第三方源码、许可与来源说明；Gum devkit 的头/库在构建时经校验下载。

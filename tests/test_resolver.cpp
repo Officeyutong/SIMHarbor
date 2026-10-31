@@ -20,10 +20,10 @@ static Address number(cJSON *j, const char *k) {
     return std::stoull(cJSON_GetObjectItem(j, k)->valuestring, nullptr, 16);
 }
 int main(int argc, char **argv) {
-    assert(SHApproveAbi(SH_APPROVED_CC_UUID, SH_APPROVED_DRIVER_UUID, 16, 32));
-    assert(!SHApproveAbi("unknown", SH_APPROVED_DRIVER_UUID, 16, 32));
-    assert(!SHApproveAbi(SH_APPROVED_CC_UUID, "unknown", 16, 32));
-    assert(!SHApproveAbi(SH_APPROVED_CC_UUID, SH_APPROVED_DRIVER_UUID, 16, 48));
+    assert(SHRuntimeAbiLayoutCompatible(8, 16, 32));
+    assert(!SHRuntimeAbiLayoutCompatible(4, 16, 32));
+    assert(!SHRuntimeAbiLayoutCompatible(8, 24, 32));
+    assert(!SHRuntimeAbiLayoutCompatible(8, 16, 48));
     std::cout << std::unitbuf;
     assert(argc == 2);
     std::string root = argv[1];
@@ -94,6 +94,24 @@ int main(int argc, char **argv) {
     for (auto &e : p.errors)
         std::cout << "ERROR " << e << "\n";
     assert(p.complete);
+    assert(p.signaturesValidated);
+    // Firmware identities are diagnostics, not permission to use a matching plan.
+    Image unseenCC = cc, unseenDriver = dr;
+    unseenCC.uuid = "previously-unseen-commcenter";
+    unseenDriver.uuid = "previously-unseen-driver";
+    auto unseen = resolve(unseenCC, unseenDriver, symbols, number(meta.get(), "ready"));
+    assert(unseen.complete && unseen.signaturesValidated && unseen.values == p.values);
+    auto wrongSignature = symbols;
+    for (auto &s : wrongSignature) {
+        if (s.name.find("block in") == std::string::npos &&
+            s.name.find("sendSimApdu_command(") != std::string::npos) {
+            auto at = s.name.find("function<void (bool)>");
+            assert(at != std::string::npos);
+            s.name.replace(at, strlen("function<void (bool)>"), "function<void (int)>");
+        }
+    }
+    auto wrong = resolve(cc, dr, wrongSignature, number(meta.get(), "ready"));
+    assert(!wrong.complete && !wrong.signaturesValidated && !wrong.errors.empty());
     assert(p.values.at("sender") == cc.base + 0x7e4568);
     assert(p.values.at("simState") == cc.base + 0x11c3c10);
     assert(p.values.at("controllerVtable") == cc.base + 0x175fb78);

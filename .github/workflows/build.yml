@@ -101,6 +101,6 @@ jobs:
             echo "Release $tag already exists; leaving it unchanged."
             exit 0
           fi
-          printf 'SIMHarbor %s\n\nCommit: %s\n\nPackages: rootful, rootless, roothide. Choose the package matching your jailbreak; install its app and CommCenter extension together. Firmware ABI approval is still required.\n' "$VERSION" "$COMMIT" > RELEASE_NOTES.md
+          printf 'SIMHarbor %s\n\nCommit: %s\n\nPackages: rootful, rootless, roothide. Choose the package matching your jailbreak; install its app and CommCenter extension together. Availability is determined by runtime compatibility checks.\n' "$VERSION" "$COMMIT" > RELEASE_NOTES.md
           gh release create "$tag" "SIMHarbor_${VERSION}_rootful.deb" "SIMHarbor_${VERSION}_rootless.deb" "SIMHarbor_${VERSION}_roothide.deb" SHA256SUMS build-info_*.json \
             --repo "$GH_REPO" --target "$COMMIT" --title "SIMHarbor $VERSION" --notes-file RELEASE_NOTES.md
