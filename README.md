@@ -18,11 +18,14 @@ python3 ci/bootstrap.py
 python3 scripts/sync_version.py
 python3 tests/test_ci_policy.py
 python3 tests/test_fetch_gum.py
+python3 tests/test_packaging_tools.py
 python3 tests/check_offline.py
 bash build.sh
 ```
 
 The default build produces a roothide deb in `packages/`. Set `SIMHARBOR_SCHEME=rootful`, `rootless`, or `roothide` to select a package. The same pinned roothide/Theos supports all three schemes, following the [roothide Developer README](https://github.com/roothide/Developer). See [package variants](docs/PACKAGING.md) for architectures, paths and verification commands. Packaging support does not approve additional firmware ABIs.
+
+Linux setup includes `libplist-utils` and its runtime dependency. Before compiling, the build exercises the `plistutil` selected by its toolchain PATH on XML and OpenStep `.strings` files, verifying binary conversion and Unicode values. Missing converter libraries are reported before compilation, including when reusing a cached toolchain.
 
 Dependency sources, revisions, and checksums are recorded in `ci/dependencies.json` and `vendor/frida-gum/PROVENANCE.json`. Each build generates shared random IPC pairing material for its app and extension, then removes the generated header. Install the app and extension together from the same build.
 
@@ -38,7 +41,7 @@ GitHub Actions workflow: `.github/workflows/build.yml`.
 
 Releases require all three variants to succeed. Assets include `SIMHarbor_VERSION_rootful.deb`, `SIMHarbor_VERSION_rootless.deb`, `SIMHarbor_VERSION_roothide.deb`, a combined `SHA256SUMS`, and per-scheme build metadata.
 
-To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.12 (build 1312). See the [release notes](docs/RELEASES.md).
+To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.13 (build 1313). See the [release notes](docs/RELEASES.md).
 
 ## Tests and validation scope
 

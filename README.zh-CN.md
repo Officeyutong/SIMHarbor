@@ -18,11 +18,14 @@ python3 ci/bootstrap.py
 python3 scripts/sync_version.py
 python3 tests/test_ci_policy.py
 python3 tests/test_fetch_gum.py
+python3 tests/test_packaging_tools.py
 python3 tests/check_offline.py
 bash build.sh
 ```
 
 默认构建 roothide deb，输出在 `packages/`。通过 `SIMHARBOR_SCHEME=rootful`、`rootless` 或 `roothide` 选择方案。同一套固定版本 roothide/Theos 按 [roothide Developer README](https://github.com/roothide/Developer) 构建三种方案；架构、路径和校验命令见[安装包方案](docs/PACKAGING.md)。支持打包不代表已批准更多固件 ABI。
+
+Linux 依赖包含 `libplist-utils` 及其运行库。编译前会实际调用构建工具链 PATH 选中的 `plistutil`，转换 XML 与 OpenStep `.strings` 文件，并检查二进制格式和中文值。即使复用工具链缓存，缺少运行库也会在编译前直接报出。
 
 公开依赖的来源、提交号和校验值见 `ci/dependencies.json` 与 `vendor/frida-gum/PROVENANCE.json`。构建时为 App 和扩展生成同一份随机 IPC 配对材料，构建结束删除头文件；不要拆开安装来自不同构建的 App 和扩展。
 
@@ -38,7 +41,7 @@ GitHub Actions 文件：`.github/workflows/build.yml`。
 
 Release 要求三种构建全部成功，包含三个 `SIMHarbor_VERSION_方案.deb`、合并的 `SHA256SUMS` 以及各方案的构建信息。
 
-发布新版时修改 `VERSION`，并按需递增 `BUILD_NUMBER`。`control` 和 App 的 `Info.plist` 从 `packaging/` 模板自动生成，无需手动同步。源码版本目前为 1.3.12（构建号 1312），变更见[版本记录](docs/RELEASES.md)。
+发布新版时修改 `VERSION`，并按需递增 `BUILD_NUMBER`。`control` 和 App 的 `Info.plist` 从 `packaging/` 模板自动生成，无需手动同步。源码版本目前为 1.3.13（构建号 1313），变更见[版本记录](docs/RELEASES.md)。
 
 ## 测试与验证范围
 

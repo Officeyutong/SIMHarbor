@@ -1,5 +1,21 @@
 # Release notes / 版本记录
 
+## 1.3.13 — build 1313
+
+### English
+
+- Fix the CI packaging failure shared by all three schemes: the bundled `plistutil` could not load `libplist-2.0.so.4`. Install `libplist-utils` and its runtime through the Linux dependency setup.
+- Before compiling, exercise the converter selected by the actual build PATH using in-place XML and OpenStep `.strings` conversion. Verify binary plist output and Unicode values. Report missing executables or runtime libraries immediately, including with cached toolchains.
+- Add regression tests for a missing converter, the observed loader failure with exit 127, and a converter that reports success without converting. Keep the existing version-gated release and per-push artifact policy.
+- Targeted converter checks, regression tests, offline sanitizer/localization checks, release-policy tests and workflow lint pass. All three version 1.3.13 packages build and pass local artifact verification. The hosted workflow has not been rerun with this commit; publishing awaits the user's push.
+
+### 简体中文
+
+- 修复三个方案共同的 CI 打包失败：工具链中的 `plistutil` 无法加载 `libplist-2.0.so.4`。Linux 依赖安装补充 `libplist-utils` 及其运行库。
+- 编译前按实际构建 PATH 调用转换器，执行 XML 与 OpenStep `.strings` 原地转换，并核对二进制 plist 和中文内容。转换器缺失或运行库不可用时立即报错，缓存命中时也执行检查。
+- 添加转换器不存在、实际遇到的 exit 127 运行库错误，以及伪成功但未转换等回归测试。保留版本号变化才发布、所有 push 上传 artifact 的策略。
+- 针对转换器的检查、回归测试、离线 sanitizer/本地化、发布策略测试和工作流语法检查通过；1.3.13 的三种包均在本地构建并通过产物校验。云端工作流尚未运行此提交，等待用户 push 后发布。
+
 ## 1.3.12 — build 1312
 
 ### English

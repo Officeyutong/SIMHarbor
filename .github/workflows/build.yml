@@ -48,6 +48,7 @@ jobs:
           python3 scripts/check_public_tree.py
           python3 tests/test_ci_policy.py
           python3 tests/test_fetch_gum.py
+          python3 tests/test_packaging_tools.py
           python3 tests/check_offline.py 2>&1 | tee dist/offline-checks.log
       - name: Build deb
         env:

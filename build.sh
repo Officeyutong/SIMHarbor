@@ -19,6 +19,7 @@ if [[ ! -f "$THEOS/makefiles/common.mk" ]]; then
     echo 'Missing Theos; run python3 ci/bootstrap.py first.' >&2
     exit 1
 fi
+python3 ci/check_packaging_tools.py
 python3 scripts/sync_version.py
 python3 scripts/build_docs.py
 python3 scripts/fetch_gum.py

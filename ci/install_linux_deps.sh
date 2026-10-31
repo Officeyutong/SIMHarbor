@@ -4,7 +4,7 @@ set -euo pipefail
 if [[ $(id -u) == 0 ]]; then AS_ROOT=(); else AS_ROOT=(sudo); fi
 export DEBIAN_FRONTEND=noninteractive
 "${AS_ROOT[@]}" apt-get update -qq
-"${AS_ROOT[@]}" apt-get install -y --no-install-recommends ca-certificates curl gnupg git python3 build-essential fakeroot rsync xz-utils zstd libxml2 libtinfo6 file dpkg-dev
+"${AS_ROOT[@]}" apt-get install -y --no-install-recommends ca-certificates curl gnupg git python3 build-essential fakeroot rsync xz-utils zstd libxml2 libtinfo6 libplist-utils file dpkg-dev
 key=$(mktemp)
 trap 'python3 -c "from pathlib import Path; import sys; Path(sys.argv[1]).unlink(missing_ok=True)" "$key"' EXIT
 curl -fsSL --retry 3 https://apt.llvm.org/llvm-snapshot.gpg.key -o "$key"
