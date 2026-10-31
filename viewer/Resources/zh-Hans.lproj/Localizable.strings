@@ -262,5 +262,7 @@
 
 "User guide" = "使用说明";
 "Source repository" = "源码仓库";
+"No code recognized yet. Hold steady, move farther away, or choose an image." = "尚未识别到二维码。请保持稳定、稍微移远，或选择图片识别。";
+"Live QR recognition failed. Try again or choose an image." = "实时二维码识别失败，请重试或选择图片识别。";
 
 "Unable to load the user guide." = "无法加载使用说明。";

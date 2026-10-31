@@ -262,5 +262,7 @@
 
 "User guide" = "User guide";
 "Source repository" = "Source repository";
+"No code recognized yet. Hold steady, move farther away, or choose an image." = "No code recognized yet. Hold steady, move farther away, or choose an image.";
+"Live QR recognition failed. Try again or choose an image." = "Live QR recognition failed. Try again or choose an image.";
 
 "Unable to load the user guide." = "Unable to load the user guide.";

@@ -1,6 +1,20 @@
 #import "Localization.h"
 #import "QRDecoder.h"
 #import <Vision/Vision.h>
+static VNDetectBarcodesRequest *SHQRRequest(void) {
+    VNDetectBarcodesRequest *request = [VNDetectBarcodesRequest new];
+    request.symbologies = @[ VNBarcodeSymbologyQR ];
+    request.usesCPUOnly = YES;
+    return request;
+}
+static NSString *SHActivationFromObservations(NSArray<VNBarcodeObservation *> *observations) {
+    for (VNBarcodeObservation *observation in observations) {
+        NSString *code = [SHQRDecoder activationCodeFromPayload:observation.payloadStringValue];
+        if (code)
+            return code;
+    }
+    return nil;
+}
 @implementation SHQRDecoder
 + (NSString *)activationCodeFromPayload:(NSString *)payload {
     if (![payload isKindOfClass:NSString.class])
@@ -30,17 +44,13 @@
                        }];
         return nil;
     }
-    VNDetectBarcodesRequest *request = [VNDetectBarcodesRequest new];
-    request.symbologies = @[ VNBarcodeSymbologyQR ];
-    request.usesCPUOnly = YES;
+    VNDetectBarcodesRequest *request = SHQRRequest();
     VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithData:data options:@{}];
     if (![handler performRequests:@[ request ] error:error])
         return nil;
-    for (VNBarcodeObservation *o in request.results) {
-        NSString *s = [self activationCodeFromPayload:o.payloadStringValue];
-        if (s)
-            return s;
-    }
+    NSString *code = SHActivationFromObservations(request.results);
+    if (code)
+        return code;
     if (error)
         *error =
             [NSError errorWithDomain:@"SIMHarbor"
@@ -50,5 +60,24 @@
                                     SHL(@"No valid eSIM activation QR code was found in the image.")
                             }];
     return nil;
+}
++ (NSString *)decodePixelBuffer:(CVPixelBufferRef)pixelBuffer
+                 detectedQRCode:(BOOL *)detected
+                          error:(NSError **)error {
+    if (detected)
+        *detected = NO;
+    if (error)
+        *error = nil;
+    if (!pixelBuffer)
+        return nil;
+    VNDetectBarcodesRequest *request = SHQRRequest();
+    // The video output rotates its buffers to the configured interface orientation.
+    VNImageRequestHandler *handler =
+        [[VNImageRequestHandler alloc] initWithCVPixelBuffer:pixelBuffer options:@{}];
+    if (![handler performRequests:@[ request ] error:error])
+        return nil;
+    if (detected)
+        *detected = request.results.count > 0;
+    return SHActivationFromObservations(request.results);
 }
 @end

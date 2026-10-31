@@ -1,5 +1,21 @@
 # Release notes / 版本记录
 
+## 1.3.11 — build 1311
+
+### English
+
+- Fix live scanning of activation QR codes that image import could recognize but camera metadata did not report. Keep metadata recognition and add Vision recognition directly from camera pixel buffers, sharing the image decoder's request settings and activation-code validation.
+- Prefer 1080p capture, align preview and video orientation, and process at most four frames per second on a dedicated serial queue with late-frame dropping. Keep focus controls, prevent auto-lock while scanning, and deliver a recognized code only once to the confirmation dialog.
+- Add bilingual recognition hints and English diagnostics for camera setup, first-frame dimensions and recognition source, without logging activation-code payloads.
+- All three packages built and passed package validation; formatting and offline sanitizer/localization checks passed. On the roothide phone, logs confirmed 1080 × 1920 camera frames and recognition through Vision; the user confirmed the previously failing QR opened the activation confirmation dialog. This verifies scanning, not a subsequent profile download.
+
+### 简体中文
+
+- 修复图片可以识别、实时摄像头却没有响应的激活二维码问题。保留相机元数据识别，新增直接对相机像素帧执行 Vision 识别，复用图片识别的请求配置和激活码校验。
+- 优先采用 1080p 采集，同步预览与视频方向；独立串行队列每秒最多处理四帧并丢弃积压帧。保留对焦操作，扫码期间阻止自动锁屏，识别结果只向确认框交付一次。
+- 增加双语识别提示及英文诊断日志，记录相机配置、首帧尺寸与识别来源，不记录激活码内容。
+- 三种安装包均构建并通过包检查，格式检查与离线 sanitizer/本地化检查通过。roothide 真机日志确认取得 1080 × 1920 相机帧并通过 Vision 识别；用户确认此前无法识别的二维码已弹出激活确认框。该结果验证扫码，不代表后续 profile 下载已成功。
+
 ## 1.3.10 — build 1310
 
 ### English

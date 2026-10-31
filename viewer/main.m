@@ -7,6 +7,7 @@
 #import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <PhotosUI/PhotosUI.h>
+#import <CoreMedia/CoreMedia.h>
 #import "QRDecoder.h"
 #import "Bridge.h"
 #import "LPAEngine.h"
@@ -14,22 +15,35 @@
 static UIColor *Accent(void) { return [UIColor colorWithRed:0.02 green:0.55 blue:0.56 alpha:1]; }
 static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
 
-@interface ScannerVC : UIViewController <AVCaptureMetadataOutputObjectsDelegate>
+@interface ScannerVC : UIViewController <AVCaptureMetadataOutputObjectsDelegate,
+                                         AVCaptureVideoDataOutputSampleBufferDelegate>
 @property(nonatomic, strong) AVCaptureSession *session;
 @property(nonatomic, strong) AVCaptureVideoPreviewLayer *preview;
 @property(nonatomic, copy) void (^result)(NSString *);
-@property(nonatomic) BOOL delivered;
+@property(atomic) BOOL delivered;
 @property(atomic) BOOL closed;
 @property(nonatomic, strong) AVCaptureDevice *camera;
 @property(nonatomic, strong) UIView *focusIndicator;
 @property(nonatomic) NSUInteger focusGeneration;
 @property(nonatomic, strong) dispatch_queue_t captureQueue;
+@property(nonatomic, strong) dispatch_queue_t frameQueue;
+@property(nonatomic, strong) AVCaptureVideoDataOutput *videoOutput;
+@property(nonatomic) CFAbsoluteTime lastVisionTime;
+@property(atomic) BOOL receivedFrame;
+@property(nonatomic) BOOL loggedVisionError;
+@property(nonatomic) BOOL previousIdleTimerDisabled;
 @property(nonatomic, strong) UILabel *hint;
 @end
 @implementation ScannerVC
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    self.previousIdleTimerDisabled = UIApplication.sharedApplication.idleTimerDisabled;
+    UIApplication.sharedApplication.idleTimerDisabled = YES;
+}
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.captureQueue = dispatch_queue_create("com.simharbor.camera", DISPATCH_QUEUE_SERIAL);
+    self.frameQueue = dispatch_queue_create("com.simharbor.camera.vision", DISPATCH_QUEUE_SERIAL);
     self.title = SHL(@"Scan activation code");
     self.view.backgroundColor = UIColor.blackColor;
     self.navigationItem.leftBarButtonItem =
@@ -74,19 +88,50 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
             ?: [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
     AVCaptureDeviceInput *input = [AVCaptureDeviceInput deviceInputWithDevice:camera error:&e];
     AVCaptureMetadataOutput *out = [AVCaptureMetadataOutput new];
-    if (!input || ![self.session canAddInput:input] || ![self.session canAddOutput:out]) {
+    if (!input || ![self.session canAddInput:input]) {
         self.hint.text = SHL(@"Unable to start the camera. Enter the code manually.");
+        Record(@"QR camera input could not be configured.");
         return;
     }
     self.camera = camera;
+    [self.session beginConfiguration];
+    if ([self.session canSetSessionPreset:AVCaptureSessionPreset1920x1080])
+        self.session.sessionPreset = AVCaptureSessionPreset1920x1080;
     [self.session addInput:input];
-    [self.session addOutput:out];
-    [out setMetadataObjectsDelegate:self queue:dispatch_get_main_queue()];
-    out.metadataObjectTypes = @[ AVMetadataObjectTypeQRCode ];
+    BOOL metadataEnabled = NO;
+    if ([self.session canAddOutput:out]) {
+        [self.session addOutput:out];
+        if ([out.availableMetadataObjectTypes containsObject:AVMetadataObjectTypeQRCode]) {
+            [out setMetadataObjectsDelegate:self queue:dispatch_get_main_queue()];
+            out.metadataObjectTypes = @[ AVMetadataObjectTypeQRCode ];
+            out.rectOfInterest = CGRectMake(0, 0, 1, 1);
+            metadataEnabled = YES;
+        }
+    }
+    AVCaptureVideoDataOutput *video = [AVCaptureVideoDataOutput new];
+    video.alwaysDiscardsLateVideoFrames = YES;
+    if ([self.session canAddOutput:video]) {
+        [self.session addOutput:video];
+        NSNumber *format = @(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange);
+        if ([video.availableVideoCVPixelFormatTypes containsObject:format])
+            video.videoSettings = @{(NSString *)kCVPixelBufferPixelFormatTypeKey : format};
+        [video setSampleBufferDelegate:self queue:self.frameQueue];
+        self.videoOutput = video;
+    }
+    [self.session commitConfiguration];
+    if (!self.videoOutput && !metadataEnabled) {
+        self.hint.text = SHL(@"Unable to start the camera. Enter the code manually.");
+        Record(@"QR camera has no supported recognition output.");
+        return;
+    }
+    Record([NSString stringWithFormat:@"QR camera configured: metadata=%@ Vision=%@.",
+                                      metadataEnabled ? @"enabled" : @"unavailable",
+                                      self.videoOutput ? @"enabled" : @"unavailable"]);
     self.preview = [AVCaptureVideoPreviewLayer layerWithSession:self.session];
     self.preview.videoGravity = AVLayerVideoGravityResizeAspectFill;
     [self.view.layer insertSublayer:self.preview atIndex:0];
     self.preview.frame = self.view.bounds;
+    [self updateVideoOrientation];
     UIView *frame = [UIView new];
     frame.userInteractionEnabled = NO;
     frame.layer.borderColor = [UIColor colorWithRed:0.2 green:0.95 blue:0.85 alpha:1].CGColor;
@@ -121,6 +166,27 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
         if (!self.closed)
             [self.session startRunning];
     });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 6 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        if (!self.closed && !self.delivered)
+            self.hint.text =
+                SHL(@"No code recognized yet. Hold steady, move farther away, or choose an image.");
+    });
+}
+- (void)updateVideoOrientation {
+    UIInterfaceOrientation interface = self.view.window.windowScene.interfaceOrientation;
+    AVCaptureVideoOrientation orientation = AVCaptureVideoOrientationPortrait;
+    if (interface == UIInterfaceOrientationLandscapeLeft)
+        orientation = AVCaptureVideoOrientationLandscapeLeft;
+    else if (interface == UIInterfaceOrientationLandscapeRight)
+        orientation = AVCaptureVideoOrientationLandscapeRight;
+    else if (interface == UIInterfaceOrientationPortraitUpsideDown)
+        orientation = AVCaptureVideoOrientationPortraitUpsideDown;
+    AVCaptureConnection *preview = self.preview.connection;
+    if (preview.isVideoOrientationSupported)
+        preview.videoOrientation = orientation;
+    AVCaptureConnection *frames = [self.videoOutput connectionWithMediaType:AVMediaTypeVideo];
+    if (frames.isVideoOrientationSupported)
+        frames.videoOrientation = orientation;
 }
 - (void)configureFocusAtDevicePoint:(CGPoint)point continuous:(BOOL)continuous {
     AVCaptureDevice *camera = self.camera;
@@ -195,9 +261,11 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     self.preview.frame = self.view.bounds;
+    [self updateVideoOrientation];
 }
 - (void)viewDidDisappear:(BOOL)a {
     [super viewDidDisappear:a];
+    UIApplication.sharedApplication.idleTimerDisabled = self.previousIdleTimerDisabled;
     self.closed = YES;
     [[NSNotificationCenter defaultCenter]
         removeObserver:self
@@ -231,6 +299,7 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
     for (AVMetadataMachineReadableCodeObject *object in objects) {
         NSString *code = [SHQRDecoder activationCodeFromPayload:object.stringValue];
         if (code) {
+            Record(@"QR activation code recognized via camera metadata.");
             [self finishWithCode:code];
             return;
         }
@@ -238,6 +307,52 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
     if (objects.count)
         self.hint.text = SHL(
             @"This is not an eSIM activation QR code. Scan the code provided by your operator.");
+}
+- (void)captureOutput:(AVCaptureOutput *)output
+    didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
+           fromConnection:(AVCaptureConnection *)connection {
+    if (self.closed || self.delivered)
+        return;
+    @autoreleasepool {
+        CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+        if (now - self.lastVisionTime < .25)
+            return;
+        self.lastVisionTime = now;
+        CVPixelBufferRef pixels = CMSampleBufferGetImageBuffer(sampleBuffer);
+        if (!pixels)
+            return;
+        if (!self.receivedFrame) {
+            self.receivedFrame = YES;
+            Record([NSString stringWithFormat:@"QR camera frames received: %zu x %zu.",
+                                              CVPixelBufferGetWidth(pixels),
+                                              CVPixelBufferGetHeight(pixels)]);
+        }
+        NSError *error = nil;
+        BOOL detected = NO;
+        NSString *code = [SHQRDecoder decodePixelBuffer:pixels
+                                         detectedQRCode:&detected
+                                                  error:&error];
+        if (error && !self.loggedVisionError) {
+            self.loggedVisionError = YES;
+            Record([NSString stringWithFormat:@"QR camera Vision failed: domain=%@ code=%ld.",
+                                              error.domain, (long)error.code]);
+        }
+        if (!code && !detected && !error)
+            return;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (self.closed || self.delivered)
+                return;
+            if (code) {
+                Record(@"QR activation code recognized via Vision camera frames.");
+                [self finishWithCode:code];
+            } else if (detected) {
+                self.hint.text = SHL(
+                    @"This is not an eSIM activation QR code. Scan the code provided by your operator.");
+            } else if (error) {
+                self.hint.text = SHL(@"Live QR recognition failed. Try again or choose an image.");
+            }
+        });
+    }
 }
 @end
 
