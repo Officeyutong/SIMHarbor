@@ -1,3 +1,4 @@
+#import "../shared/JSONFoundation.h"
 #import "FirmwareReportVC.h"
 #import "Bridge.h"
 #import "Localization.h"
@@ -40,15 +41,11 @@
     self.navigationItem.rightBarButtonItems[0].enabled = NO;
     [self.queue addOperationWithBlock:^{
         NSError *error = nil;
-        NSDictionary *reply = [[SHBridge shared] request:@{@"op" : @"resolver"} error:&error];
-        NSData *json = reply[@"report"]
-                           ? [NSJSONSerialization dataWithJSONObject:reply[@"report"]
-                                                             options:NSJSONWritingPrettyPrinted |
-                                                                     NSJSONWritingSortedKeys
-                                                               error:nil]
-                           : nil;
-        NSString *body = json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]
-                              : error.localizedDescription;
+        auto reply = [[SHBridge shared] request:shjson::Request::make(shjson::Operation::Resolver)
+                                          error:&error];
+        auto report = shjson::body<shjson::ResolverReply>(reply);
+        NSString *body = report ? SHString(shjson::dump(shjson::JSON(report->report), true))
+                                : error.localizedDescription;
         dispatch_async(dispatch_get_main_queue(), ^{
             self.loading = NO;
             self.navigationItem.rightBarButtonItems[0].enabled = YES;

@@ -37,7 +37,7 @@ The default build produces a roothide deb in `packages/`. Set `SIMHARBOR_SCHEME=
 
 Linux setup includes `libplist-utils` and its runtime dependency. Before compiling, the build exercises the `plistutil` selected by its toolchain PATH on XML and OpenStep `.strings` files, verifying binary conversion and Unicode values. Missing converter libraries are reported before compilation, including when reusing a cached toolchain.
 
-Dependency sources, revisions, and checksums are recorded in `ci/dependencies.json` and `vendor/frida-gum/PROVENANCE.json`. Each build generates shared random IPC pairing material for its app and extension, then removes the generated header. Install the app and extension together from the same build.
+Dependency sources, revisions, and checksums are recorded in `ci/dependencies.json`, `vendor/frida-gum/PROVENANCE.json` and `vendor/nlohmann/PROVENANCE.json`. Project-owned runtime JSON uses nlohmann/json 3.12.0 and shared typed app/tweak models; libeuicc retains its upstream cJSON implementation. Each build generates shared random IPC pairing material for its app and extension, then removes the generated header. Install the app and extension together from the same build.
 
 ## Automated builds and releases
 
@@ -51,7 +51,7 @@ GitHub Actions workflow: `.github/workflows/build.yml`.
 
 Releases require all three variants to succeed. Assets include `SIMHarbor_VERSION_rootful.deb`, `SIMHarbor_VERSION_rootless.deb`, `SIMHarbor_VERSION_roothide.deb`, a combined `SHA256SUMS`, and per-scheme build metadata.
 
-To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.19 (build 1319). See the [release notes](docs/RELEASES.md).
+To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.20 (build 1320). See the [release notes](docs/RELEASES.md).
 
 ## Tests and validation scope
 
@@ -71,6 +71,7 @@ The app includes only its bilingual user guide. Technical articles remain in thi
 - [Multiple slots: discovery and routing](docs/MULTI_SLOT.md)
 - [How the Patchfinder works](docs/PATCHFINDER.md)
 - [How CommCenter carries APDUs to the baseband](docs/COMMCENTER_TRANSPORT.md)
+- [Shared typed JSON models](docs/JSON_MODELS.md)
 - [App–CommCenter IPC protocol](docs/IPC.md)
 - [Porting guide](docs/manual/en/porting.md)
 - [Validation scope](docs/VALIDATION.md)

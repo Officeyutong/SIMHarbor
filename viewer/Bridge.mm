@@ -2,6 +2,7 @@
 #import "Localization.h"
 #import "Bridge.h"
 #import "../shared/Wire.h"
+#import "../shared/JSONFoundation.h"
 #import <arpa/inet.h>
 #import <Security/Security.h>
 #import <errno.h>
@@ -90,10 +91,14 @@
                                 continue;
                             }
                             NSString *nonce = SHHex([NSData dataWithBytes:bytes length:32]);
-                            BOOL ok = SHWrite(fd, @{@"nonce" : nonce});
-                            NSDictionary *reply = ok ? SHRead(fd) : nil;
-                            if (!SHSame(reply[@"mac"], SHMAC(@"commcenter:", nonce)) ||
-                                !SHWrite(fd, @{@"mac" : SHMAC(@"app:", nonce)})) {
+                            bool ok =
+                                shjson::writeMessage(fd, shjson::Challenge{SHStdString(nonce)});
+                            auto reply =
+                                ok ? shjson::readMessage<shjson::Authentication>(fd) : std::nullopt;
+                            if (!reply ||
+                                !SHSame(SHString(reply->mac), SHMAC(@"commcenter:", nonce)) ||
+                                !shjson::writeMessage(fd, shjson::Authentication{SHStdString(
+                                                              SHMAC(@"app:", nonce))})) {
                                 close(fd);
                                 continue;
                             }
@@ -124,50 +129,49 @@
         });
     });
 }
-- (NSDictionary *)request:(NSDictionary *)body error:(NSError **)error {
+- (std::optional<shjson::Reply>)request:(const shjson::Request &)body error:(NSError **)error {
     [_lock lock];
-    NSMutableDictionary *q = [body mutableCopy];
-    q[@"id"] = NSUUID.UUID.UUIDString;
-    NSDictionary *r = nil;
-    NSString *op = q[@"op"] ?: @"unknown";
-    NSString *trace = [NSString stringWithFormat:@"IPC TX id=%@ op=%@", q[@"id"], op];
-    [[SHTraceLog shared] event:trace];
-    if ([op isEqual:@"transmit"])
-        [[SHTraceLog shared] frame:[@"APDU TX " stringByAppendingString:q[@"id"]]
-                              data:SHUnhex(q[@"hex"])];
-    else if ([op isEqual:@"open"])
-        [[SHTraceLog shared] event:[NSString stringWithFormat:@"CHANNEL OPEN slot=%@ AID=%@",
-                                                              q[@"slot"], q[@"aid"]]];
-    if (_peer >= 0 && SHWrite(_peer, q))
-        r = SHRead(_peer);
-    if (![r[@"id"] isEqual:q[@"id"]]) {
+    auto request = body;
+    request.id = SHStdString(NSUUID.UUID.UUIDString);
+    std::optional<shjson::Reply> reply;
+    auto operation = shjson::JSON(request.op);
+    NSString *op =
+        operation.is_string() ? SHString(operation.get_ref<const std::string &>()) : @"unknown";
+    NSString *identifier = SHString(request.id);
+    [[SHTraceLog shared] event:[NSString stringWithFormat:@"IPC TX id=%@ op=%@", identifier, op]];
+    if (request.op == shjson::Operation::Transmit)
+        [[SHTraceLog shared] frame:[@"APDU TX " stringByAppendingString:identifier]
+                              data:SHUnhex(SHString(request.hex))];
+    else if (request.op == shjson::Operation::Open)
+        [[SHTraceLog shared]
+            event:[NSString stringWithFormat:@"CHANNEL OPEN slot=%d AID=%@",
+                                             request.slot.value_or(0), SHString(request.aid)]];
+    if (_peer >= 0 && shjson::writeMessage(_peer, request))
+        reply = shjson::readReply(_peer, request.op);
+    if (!reply || reply->id != request.id) {
         if (_peer >= 0)
             close(_peer);
         _peer = -1;
-        r = nil;
+        reply.reset();
     }
-    if ([op isEqual:@"transmit"] && r[@"hex"]) {
-        NSData *rx = SHUnhex(r[@"hex"]);
-        [[SHTraceLog shared] frame:[@"APDU RX " stringByAppendingString:q[@"id"]] data:rx];
+    auto transmission = shjson::body<shjson::TransmitReply>(reply);
+    if (transmission) {
+        NSData *rx = SHUnhex(SHString(transmission->hex));
+        [[SHTraceLog shared] frame:[@"APDU RX " stringByAppendingString:identifier] data:rx];
         if (rx.length >= 2) {
-            const uint8_t *b = rx.bytes;
+            const auto *bytes = static_cast<const uint8_t *>(rx.bytes);
             [[SHTraceLog shared]
-                event:[NSString stringWithFormat:@"APDU SW=%02X%02X", b[rx.length - 2],
-                                                 b[rx.length - 1]]];
+                event:[NSString stringWithFormat:@"APDU SW=%02X%02X", bytes[rx.length - 2],
+                                                 bytes[rx.length - 1]]];
         }
-    } else if (r) {
-        NSData *d = [NSJSONSerialization dataWithJSONObject:r
-                                                    options:NSJSONWritingSortedKeys
-                                                      error:nil];
+    } else if (reply)
         [[SHTraceLog shared]
-            event:[NSString stringWithFormat:@"IPC RX %@",
-                                             [[NSString alloc] initWithData:d
-                                                                   encoding:NSUTF8StringEncoding]]];
-    }
+            event:[@"IPC RX "
+                      stringByAppendingString:SHString(shjson::dump(shjson::JSON(*reply)))]];
     NSString *message =
-        !r ? @"Card service is disconnected. Keep the app in the foreground and refresh later."
-        : ![r[@"ok"] boolValue] ? (r[@"error"] ?: @"Card operation failed")
-                                : nil;
+        !reply ? @"Card service is disconnected. Keep the app in the foreground and refresh later."
+        : !reply->ok ? (reply->error.empty() ? @"Card operation failed" : SHString(reply->error))
+                     : nil;
     if (message) {
         [[SHTraceLog shared] event:[@"IPC ERROR " stringByAppendingString:message]];
         if (error) {
@@ -184,6 +188,6 @@
         }
     }
     [_lock unlock];
-    return message ? nil : r;
+    return message ? std::nullopt : reply;
 }
 @end

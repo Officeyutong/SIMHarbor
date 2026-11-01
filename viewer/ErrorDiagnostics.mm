@@ -1,6 +1,9 @@
+#import "../shared/JSONFoundation.h"
 #import "ErrorDiagnostics.h"
 #import "Localization.h"
+extern "C" {
 #import <euicc/es10b.h>
+}
 
 static NSString *SHInstallationMessage(NSInteger reason) {
     switch (reason) {
@@ -55,7 +58,7 @@ NSError *SHDiagnosticError(NSString *stage, NSDictionary *details, NSError *unde
     info[@"SHDiagnosticStage"] = stage ?: @"Operation incomplete";
     // Snapshot before cancellation/close requests can replace transport state.
     info[@"SHDiagnostics"] = [details copy] ?: @{};
-    info[@"SHRecordedAt"] = [NSISO8601DateFormatter.new stringFromDate:NSDate.date];
+    info[@"SHRecordedAt"] = [[NSISO8601DateFormatter new] stringFromDate:NSDate.date];
     if (underlying)
         info[NSUnderlyingErrorKey] = underlying;
     NSNumber *reason = details[@"es10b"][@"errorReason"];
@@ -109,10 +112,7 @@ NSString *SHErrorReport(NSError *error) {
         @"diagnostics":error.userInfo[@"SHDiagnostics"] ?: @{},
         @"underlyingError":SHUnderlyingReport(error.userInfo[NSUnderlyingErrorKey], 0)
     };
-    NSData *json =
-        [NSJSONSerialization dataWithJSONObject:report
-                                        options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys
-                                          error:nil];
+    NSData *json = SHJSONData(report, YES);
     return json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]
                 : error.description;
 }

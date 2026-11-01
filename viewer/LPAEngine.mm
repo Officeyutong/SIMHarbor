@@ -1,19 +1,22 @@
-#import "TraceLog.h"
-#import "ErrorDiagnostics.h"
-#import "SignalCodec.h"
+extern "C" {
 #import <euicc/euicc.private.h>
-#import "Localization.h"
-#import "LPAEngine.h"
-#import "Bridge.h"
-#import "../shared/Wire.h"
-#import <Security/Security.h>
-#import <dlfcn.h>
 #import <euicc/euicc.h>
 #import <euicc/es10c.h>
 #import <euicc/es10a.h>
 #import <euicc/es10c_ex.h>
 #import <euicc/es9p.h>
 #import <euicc/es8p.h>
+}
+#import "TraceLog.h"
+#import "ErrorDiagnostics.h"
+#import "SignalCodec.h"
+#import "Localization.h"
+#import "LPAEngine.h"
+#import "Bridge.h"
+#import "../shared/Wire.h"
+#import "../shared/JSONFoundation.h"
+#import <Security/Security.h>
+#import <dlfcn.h>
 
 @interface SHTLS : NSObject <NSURLSessionDelegate>
 @end
@@ -77,18 +80,17 @@ static void disconnectCard(struct euicc_ctx *c) {}
 static int openCard(struct euicc_ctx *c, const uint8_t *aid, uint8_t n) {
     SHLPA *o = owner(c);
     NSError *e = nil;
-    NSDictionary *r = [[SHBridge shared] request:@{
-        @"op" : @"open",
-        @"slot" : @(o.slot),
-        @"aid" : SHHex([NSData dataWithBytes:aid length:n])
-    }
-                                           error:&e];
+    auto reply = [[SHBridge shared]
+        request:shjson::Request::open(o.slot, SHStdString(SHHex([NSData dataWithBytes:aid
+                                                                               length:n])))
+          error:&e];
+    auto opened = shjson::body<shjson::OpenReply>(reply);
     o.transportError = e;
-    return r ? [r[@"channel"] intValue] : -1;
+    return opened ? opened->channel : -1;
 }
 static void closeCard(struct euicc_ctx *c, uint8_t n) {
     NSError *e = nil;
-    [[SHBridge shared] request:@{@"op" : @"close"} error:&e];
+    [[SHBridge shared] request:shjson::Request::make(shjson::Operation::Close) error:&e];
     if (e)
         owner(c).transportError = e;
 }
@@ -100,11 +102,12 @@ static int transmitCard(struct euicc_ctx *c, uint8_t **rx, uint32_t *rn, const u
         return -1;
     }
     NSError *e = nil;
-    NSDictionary *r = [[SHBridge shared]
-        request:@{@"op" : @"transmit", @"hex" : SHHex([NSData dataWithBytes:tx length:tn])}
+    auto reply = [[SHBridge shared]
+        request:shjson::Request::transmit(SHStdString(SHHex([NSData dataWithBytes:tx length:tn])))
           error:&e];
+    auto transmission = shjson::body<shjson::TransmitReply>(reply);
     owner(c).transportError = e;
-    NSData *d = SHUnhex(r[@"hex"]);
+    NSData *d = transmission ? SHUnhex(SHString(transmission->hex)) : nil;
     NSMutableDictionary *diagnostic = [NSMutableDictionary dictionary];
     if (tn >= 4)
         diagnostic[@"commandHeader"] = SHHex([NSData dataWithBytes:tx length:4]);
@@ -122,7 +125,7 @@ static int transmitCard(struct euicc_ctx *c, uint8_t **rx, uint32_t *rn, const u
         o.transportError = SHError(20, @"Custom signal response limit exceeded.");
         return -1;
     }
-    *rx = malloc(d.length);
+    *rx = static_cast<uint8_t *>(malloc(d.length));
     if (!*rx)
         return -1;
     memcpy(*rx, d.bytes, d.length);
@@ -205,21 +208,18 @@ static int httpTransmit(struct euicc_ctx *c, const char *url, uint32_t *status, 
         [session finishTasksAndInvalidate];
         NSMutableDictionary *httpDiagnostic = [o.lastHTTPDiagnostic mutableCopy];
         httpDiagnostic[@"status"] = @(response.statusCode);
-        NSDictionary *json = body.length && body.length <= 512 * 1024
-                                 ? [NSJSONSerialization JSONObjectWithData:body options:0 error:nil]
-                                 : nil;
-        NSDictionary *header = [json isKindOfClass:NSDictionary.class] &&
-                                       [json[@"header"] isKindOfClass:NSDictionary.class]
-                                   ? json[@"header"]
-                                   : nil;
-        NSDictionary *execution =
-            [header[@"functionExecutionStatus"] isKindOfClass:NSDictionary.class]
-                ? header[@"functionExecutionStatus"]
-                : nil;
+        shjson::JSON json;
+        shjson::HTTPEnvelope envelope;
+        bool decoded = body.length && shjson::parseData(body, json, 512 * 1024) &&
+                       shjson::read(json, envelope);
+        const shjson::ExecutionStatus *execution =
+            decoded && envelope.header && envelope.header->functionExecutionStatus
+                ? &*envelope.header->functionExecutionStatus
+                : nullptr;
         if (execution)
-            httpDiagnostic[@"functionExecutionStatus"] = execution;
-        NSString *executionStatus =
-            [execution[@"status"] isKindOfClass:NSString.class] ? execution[@"status"] : nil;
+            httpDiagnostic[@"functionExecutionStatus"] =
+                shjson::foundation(shjson::JSON(*execution));
+        NSString *executionStatus = execution ? SHString(execution->status) : nil;
         if (response.statusCode >= 400 ||
             (executionStatus && ![executionStatus isEqual:@"Executed-Success"])) {
             NSData *limited =
@@ -255,7 +255,7 @@ static int httpTransmit(struct euicc_ctx *c, const char *url, uint32_t *status, 
         }
         *status = (uint32_t)response.statusCode;
         *rn = (uint32_t)body.length;
-        *rx = malloc(MAX((NSUInteger)1, body.length));
+        *rx = static_cast<uint8_t *>(malloc(MAX((NSUInteger)1, body.length)));
         if (!*rx)
             return -1;
         if (body.length)
@@ -281,9 +281,11 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
     }
     return self;
 }
-+ (NSArray<NSDictionary *> *)availableSlots:(NSError **)error {
-    NSDictionary *reply = [[SHBridge shared] request:@{@"op" : @"slots"} error:error];
-    return reply[@"slots"];
++ (std::optional<std::vector<shjson::Slot>>)availableSlots:(NSError **)error {
+    auto reply = [[SHBridge shared] request:shjson::Request::make(shjson::Operation::Slots)
+                                      error:error];
+    auto slots = shjson::body<shjson::SlotsReply>(reply);
+    return slots ? std::optional<std::vector<shjson::Slot>>(slots->slots) : std::nullopt;
 }
 + (NSOperationQueue *)operationQueue {
     static NSOperationQueue *queue;
@@ -939,7 +941,7 @@ static BOOL SHDefaultEnabled(NSString *key) {
         return nil;
     }
     for (NSData *d in commands) {
-        const char *issue = SHValidateAPDU(d.bytes, d.length);
+        const char *issue = SHValidateAPDU(static_cast<const uint8_t *>(d.bytes), d.length);
         if (issue) {
             if (error)
                 *error = SHError(20, @(issue));
@@ -957,7 +959,7 @@ static BOOL SHDefaultEnabled(NSString *key) {
         [self stage:@"Sending custom APDUs…"];
         for (NSData *d in commands) {
             NSMutableData *request = [d mutableCopy];
-            uint8_t *b = request.mutableBytes;
+            uint8_t *b = static_cast<uint8_t *>(request.mutableBytes);
             int cla = SHBindChannel(b[0], c.apdu._internal.logic_channel);
             if (cla < 0) {
                 if (error)
@@ -967,7 +969,8 @@ static BOOL SHDefaultEnabled(NSString *key) {
             b[0] = (uint8_t)cla;
             uint8_t *rx = NULL;
             uint32_t n = 0;
-            if (transmitCard(&c, &rx, &n, request.bytes, (uint32_t)request.length) < 0) {
+            if (transmitCard(&c, &rx, &n, static_cast<const uint8_t *>(request.bytes),
+                             (uint32_t)request.length) < 0) {
                 free(rx);
                 if (error)
                     *error =
@@ -1004,7 +1007,8 @@ static BOOL SHDefaultEnabled(NSString *key) {
     NSInteger mss = [NSUserDefaults.standardUserDefaults integerForKey:@"SHMSS"];
     if (mss < 6 || mss > 255)
         mss = 120;
-    const char *issue = SHValidateDER(request.bytes, request.length, (size_t)mss * 256);
+    const char *issue = SHValidateDER(static_cast<const uint8_t *>(request.bytes), request.length,
+                                      (size_t)mss * 256);
     if (issue) {
         if (error)
             *error = SHError(20, @(issue));
@@ -1027,7 +1031,8 @@ static BOOL SHDefaultEnabled(NSString *key) {
     NSData *result = nil;
     @try {
         [self stage:@"Sending custom ES10 DER…"];
-        if (es10x_command(&c, &response, &length, request.bytes, (unsigned)request.length)) {
+        if (es10x_command(&c, &response, &length, static_cast<const uint8_t *>(request.bytes),
+                          (unsigned)request.length)) {
             if (error)
                 *error =
                     self.transportError

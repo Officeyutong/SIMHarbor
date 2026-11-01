@@ -1,9 +1,10 @@
+#import "../shared/JSONFoundation.h"
 #import "../viewer/ErrorDiagnostics.h"
 #import "../viewer/Localization.h"
 #import "../viewer/LPAEngine.h"
 #import <Foundation/Foundation.h>
 
-int SHErrorDiagnosticsCheck(void) {
+extern "C" int SHErrorDiagnosticsCheck(void) {
     @autoreleasepool {
         SHLPA *first = [[SHLPA alloc] initWithSlot:1 expectedEID:@"fixture-card-one"];
         SHLPA *second = [[SHLPA alloc] initWithSlot:2 expectedEID:@"fixture-card-two"];
@@ -36,9 +37,14 @@ int SHErrorDiagnosticsCheck(void) {
                     SHDiagnosticError(@"Profile installation failed", details, nil);
                 details[@"es10b"] = @{@"errorReason" : @10};
                 NSString *text = SHErrorReport(duplicate);
+                shjson::JSON report;
+                bool decoded =
+                    shjson::parseData([text dataUsingEncoding:NSUTF8StringEncoding], report);
+                NSDictionary *snapshot =
+                    decoded && report.is_object() ? shjson::foundation(report) : nil;
                 if (duplicate.code != 4009 || ![text containsString:@"fixture-request"] ||
                     ![text containsString:@"fixture-response"] ||
-                    ![text containsString:@"errorReason\" : 9"] ||
+                    [snapshot[@"diagnostics"][@"es10b"][@"errorReason"] integerValue] != 9 ||
                     [SHErrorSummary(duplicate) containsString:@"unknown"])
                     return 1;
                 NSString *expected = [language isEqual:@"en"] ? @"already installed" : @"已安装";

@@ -1,4 +1,7 @@
 #import <Foundation/Foundation.h>
+#ifdef __cplusplus
+#include "../shared/Protocol.hpp"
+#endif
 @interface SHLPA : NSObject
 @property(nonatomic, copy) void (^progress)(NSString *stage);
 @property(nonatomic, copy) NSString *lastWarning;
@@ -6,7 +9,9 @@
 @property(nonatomic, copy, readonly) NSString *expectedEID;
 - (instancetype)initWithSlot:(int)slot;
 - (instancetype)initWithSlot:(int)slot expectedEID:(NSString *)eid;
-+ (NSArray<NSDictionary *> *)availableSlots:(NSError **)error;
+#ifdef __cplusplus
++ (std::optional<std::vector<shjson::Slot>>)availableSlots:(NSError **)error;
+#endif
 + (NSOperationQueue *)operationQueue;
 + (BOOL)automaticNotificationsEnabled;
 + (BOOL)automaticallySubmitsOperation:(NSString *)operation;

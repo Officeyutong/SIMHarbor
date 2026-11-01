@@ -14,6 +14,9 @@
 #import <mutex>
 #import "SlotRouting.hpp"
 #import "../shared/Wire.h"
+#import "../shared/JSONFoundation.h"
+using shjson::Operation;
+using shjson::Reply;
 #import "RuntimeResolver.hpp"
 using Vec = std::vector<uint8_t>;
 using Fn = std::function<void(bool)>;
@@ -41,8 +44,8 @@ static std::atomic<void *> iface{nullptr}, driver{nullptr};
 // A timeout does not roll back phase or prove that the card did not execute a command.
 // Disconnect cleanup closes Open, or waits for Opening/Transmitting to reach Open
 // before attempting close; it does not forcibly reset a busy or timed-out session.
-// Keep these explicit values stable: status/slots expose them through the IPC protocol.
-enum class Phase : int { Idle = 0, Opening = 1, Open = 2, Transmitting = 3, Closing = 4 };
+// Phase values live in shared/Protocol.hpp and retain their existing numeric IPC encoding.
+using shjson::Phase;
 static std::atomic<Phase> phase{Phase::Idle};
 static std::atomic<int> channel{-1};
 static Vec *responseVector;
@@ -202,35 +205,33 @@ static bool closeSession() {
     return ok;
 }
 // Build an operation-level error reply. networkLoop adds the matching request ID.
-static NSDictionary *fail(NSString *s) {
-    return @{@"ok" : @NO, @"error" : s};
-}
+static Reply fail(NSString *s) { return Reply::failure(SHStdString(s)); }
 // Enumerate assigned logical/hardware slots from the validated live SimInfo vector.
 // Bound memory reads, skip unassigned placeholders and reject ambiguous mappings.
-// Return nil on discovery/read failure; an empty array is a valid empty enumeration.
+// Return nullopt on discovery/read failure; an empty vector is a valid enumeration.
 // Readiness is modem metadata, not proof that a slot contains a manageable eUICC.
-static NSArray *availableSlots() {
+static std::optional<std::vector<shjson::Slot>> availableSlots() {
     if (!ensureInterface())
-        return nil;
+        return std::nullopt;
     auto fw = std::atomic_load(&firmware);
     uintptr_t span[2] = {};
     if (!SHReadMemory((uintptr_t)iface.load() + location("simVector"), span, sizeof span) ||
         !span[0] || span[1] < span[0] || (span[1] - span[0]) % sizeof(std::shared_ptr<void>) ||
         span[1] - span[0] > 16 * sizeof(std::shared_ptr<void>))
-        return nil;
+        return std::nullopt;
     std::vector<shslots::Slot> raw, assigned;
     for (uintptr_t p = span[0]; p < span[1]; p += sizeof(std::shared_ptr<void>)) {
         uintptr_t si = 0;
         int logical = 0, hardware = 0;
         if (!SHReadMemory(p, &si, 8) || !si ||
             !SHReadMemory(si + location("logicalSlot"), &logical, 4))
-            return nil;
+            return std::nullopt;
         if (logical <= 0) {
             raw.push_back({logical, 0, false});
             continue;
         }
         if (!SHReadMemory(si + fw->hardwareSlot.load(), &hardware, 4))
-            return nil;
+            return std::nullopt;
         using State = int (*)(void *);
         using Ready = bool (*)(int);
         bool ready =
@@ -238,14 +239,10 @@ static NSArray *availableSlots() {
         raw.push_back({logical, hardware, ready});
     }
     if (!shslots::assigned(raw, assigned))
-        return nil;
-    NSMutableArray *result = [NSMutableArray array];
+        return std::nullopt;
+    std::vector<shjson::Slot> result;
     for (const auto &entry : assigned)
-        [result addObject:@{
-            @"logicalSlot" : @(entry.logical),
-            @"hardwareSlot" : @(entry.hardware),
-            @"simReady" : @(entry.ready)
-        }];
+        result.push_back({entry.logical, entry.hardware, entry.ready});
     return result;
 }
 // Resolve exactly one assigned logical slot to its hardware ID and readiness flag.
@@ -253,10 +250,13 @@ static NSArray *availableSlots() {
 // to another card when the requested slot is absent or enumeration fails.
 static bool slotInfo(int requested, int &hardware, bool &ready) {
     int matches = 0;
-    for (NSDictionary *entry in availableSlots()) {
-        if ([entry[@"logicalSlot"] intValue] == requested) {
-            hardware = [entry[@"hardwareSlot"] intValue];
-            ready = [entry[@"simReady"] boolValue];
+    auto slots = availableSlots();
+    if (!slots)
+        return false;
+    for (const auto &entry : *slots) {
+        if (entry.logicalSlot == requested) {
+            hardware = entry.hardwareSlot;
+            ready = entry.simReady;
             matches++;
         }
     }
@@ -266,62 +266,51 @@ static bool slotInfo(int requested, int &hardware, bool &ready) {
 // Resolver/status remain diagnostic when compatibility fails; slot enumeration sends
 // no APDUs. Opening validates the ISD-R AID and slot, transmission returns raw card
 // bytes, and closing releases the session. networkLoop serializes these requests.
-static NSDictionary *handle(NSDictionary *q) {
-    NSString *op = q[@"op"];
-    if ([op isEqual:@"resolver"]) {
+static Reply handle(const shjson::Request &q) {
+    Operation op = q.op;
+    if (op == Operation::Resolver) {
         if (compatible)
             ensureInterface();
-        return @{@"ok" : @YES, @"report" : SHResolverReport(std::atomic_load(&firmware))};
+        return Reply::success(shjson::ResolverReply{SHResolverReport(std::atomic_load(&firmware))});
     }
-    if ([op isEqual:@"slots"]) {
+    if (op == Operation::Slots) {
         if (!compatible)
             return fail(
                 @"Runtime compatibility checks did not pass. Open Firmware resolver for details. No card command was sent.");
-        NSArray *slots = availableSlots();
-        return slots
-                   ? @{@"ok" : @YES,
-                       @"slots" : slots,
-                       @"phase" : @(static_cast<int>(phase.load()))}
-                   : fail(@"Card service is initializing. Try again later.");
+        auto slots = availableSlots();
+        return slots ? Reply::success(shjson::SlotsReply{*slots, phase.load()})
+                     : fail(@"Card service is initializing. Try again later.");
     }
-    if ([op isEqual:@"status"]) {
+    if (op == Operation::Status) {
         int hw = 0;
         bool simReady = false;
-        int requested =
-            [q[@"slot"] isKindOfClass:NSNumber.class] ? [q[@"slot"] intValue] : logicalSlot;
+        int requested = q.slot.value_or(logicalSlot);
         if (requested < 1) {
-            NSArray *entries = compatible ? availableSlots() : nil;
-            requested = [entries.firstObject[@"logicalSlot"] intValue];
+            auto entries = compatible ? availableSlots() : std::nullopt;
+            requested = entries && !entries->empty() ? entries->front().logicalSlot : 0;
         }
         bool available = compatible && slotInfo(requested, hw, simReady);
-        return @{
-            @"ok" : @YES,
-            @"compatible" : @(compatible.load()),
-            @"ready" : @(available),
-            @"phase" : @(static_cast<int>(phase.load())),
-            @"logicalSlot" : @(requested),
-            @"hardwareSlot" : @(hw),
-            @"simReady" : @(simReady),
-            @"resolver" : SHResolverReport(std::atomic_load(&firmware))
-        };
+        return Reply::success(shjson::StatusReply{compatible.load(), available, phase.load(),
+                                                  requested, hw, simReady,
+                                                  SHResolverReport(std::atomic_load(&firmware))});
     }
     if (!compatible)
         return fail(
             @"Runtime compatibility checks did not pass. Open Firmware resolver for details. No card command was sent.");
-    if ([op isEqual:@"close"])
+    if (op == Operation::Close)
         return closeSession()
-                   ? @{@"ok" : @YES}
+                   ? Reply::success()
                    : fail(@"Channel close did not complete. Do not repeat the operation.");
-    if ([op isEqual:@"open"]) {
+    if (op == Operation::Open) {
         if (phase.load() != Phase::Idle)
             return fail(@"The card is busy.");
         if (!ensureInterface())
             return fail(@"Card service is initializing. Try again later.");
-        NSData *d = SHUnhex(q[@"aid"]);
+        NSData *d = SHUnhex(SHString(q.aid));
         if (![SHHex(d) isEqual:@"a0000005591010ffffffff8900000100"])
             return fail(@"Only the eUICC management application is supported.");
-        int requested = [q[@"slot"] intValue];
-        if (![q[@"slot"] isKindOfClass:NSNumber.class] || requested < 1)
+        int requested = q.slot.value_or(0);
+        if (requested < 1)
             return fail(@"Select a physical SIM slot.");
         bool ready = false;
         int hardware = 0;
@@ -375,12 +364,7 @@ static NSDictionary *handle(NSDictionary *q) {
                 return fail(
                     @"Unable to open the card management application. Check that the card is inserted.");
             }
-            return @{
-                @"ok" : @YES,
-                @"channel" : @(channel.load()),
-                @"logicalSlot" : @(logicalSlot),
-                @"hardwareSlot" : @(slot)
-            };
+            return Reply::success(shjson::OpenReply{channel.load(), logicalSlot, slot});
         }
         // The normal sender accepts an AID, not raw APDU bytes. Its command/close
         // hooks capture and retain the session needed by later transmit requests.
@@ -396,17 +380,12 @@ static NSDictionary *handle(NSDictionary *q) {
             return fail(@"Channel open timed out. Wait for service recovery.");
         if (phase.load() != Phase::Open)
             return fail(@"Unable to open ISD-R. Check that the card supports eUICC.");
-        return @{
-            @"ok" : @YES,
-            @"channel" : @(channel.load()),
-            @"logicalSlot" : @(logicalSlot),
-            @"hardwareSlot" : @(slot)
-        };
+        return Reply::success(shjson::OpenReply{channel.load(), logicalSlot, slot});
     }
-    if ([op isEqual:@"transmit"]) {
+    if (op == Operation::Transmit) {
         if (phase.load() != Phase::Open || !retained)
             return fail(@"The channel is not open.");
-        NSData *d = SHUnhex(q[@"hex"]);
+        NSData *d = SHUnhex(SHString(q.hex));
         if (d.length < 4 || d.length > 261)
             return fail(@"Invalid APDU length.");
         {
@@ -424,7 +403,8 @@ static NSDictionary *handle(NSDictionary *q) {
         std::lock_guard<std::mutex> g(mu);
         if (qmiError || raw.size() < 2)
             return fail([NSString stringWithFormat:@"Card transport failed (%d).", qmiError]);
-        return @{@"ok" : @YES, @"hex" : SHHex([NSData dataWithBytes:raw.data() length:raw.size()])};
+        return Reply::success(shjson::TransmitReply{
+            SHStdString(SHHex([NSData dataWithBytes:raw.data() length:raw.size()]))});
     }
     return fail(@"Unknown request.");
 }
@@ -451,11 +431,14 @@ static void networkLoop() {
                 sleep(2);
                 continue;
             }
-            NSDictionary *hello = SHRead(fd);
-            NSString *nonce = hello[@"nonce"];
-            if (![nonce isKindOfClass:NSString.class] || nonce.length != 64 ||
-                !SHWrite(fd, @{@"mac" : SHMAC(@"commcenter:", nonce)}) ||
-                !SHSame(SHRead(fd)[@"mac"], SHMAC(@"app:", nonce))) {
+            auto hello = shjson::readMessage<shjson::Challenge>(fd);
+            auto nonce = hello ? SHString(hello->nonce) : nil;
+            bool authenticated =
+                hello && shjson::writeMessage(
+                             fd, shjson::Authentication{SHStdString(SHMAC(@"commcenter:", nonce))});
+            auto peer =
+                authenticated ? shjson::readMessage<shjson::Authentication>(fd) : std::nullopt;
+            if (!peer || !SHSame(SHString(peer->mac), SHMAC(@"app:", nonce))) {
                 close(fd);
                 sleep(2);
                 continue;
@@ -464,13 +447,12 @@ static void networkLoop() {
             setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &t, sizeof t);
             while (1) {
                 @autoreleasepool {
-                    NSDictionary *q = SHRead(fd);
-                    if (!q)
+                    auto request = shjson::readMessage<shjson::Request>(fd);
+                    if (!request)
                         break;
-                    NSDictionary *r = handle(q);
-                    NSMutableDictionary *reply = [r mutableCopy];
-                    reply[@"id"] = q[@"id"] ?: @"";
-                    if (!SHWrite(fd, reply))
+                    auto reply = handle(*request);
+                    reply.id = request->id;
+                    if (!shjson::writeMessage(fd, reply))
                         break;
                 }
             }

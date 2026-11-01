@@ -1,6 +1,7 @@
 #pragma once
 #import <Foundation/Foundation.h>
 #include "ResolverCore.hpp"
+#include "../shared/Protocol.hpp"
 #include <atomic>
 #include <memory>
 struct SHFirmware {
@@ -20,4 +21,4 @@ std::shared_ptr<SHFirmware> SHResolveFirmware();
 bool SHReadMemory(uintptr_t, void *, size_t);
 uintptr_t SHCleanPointer(uintptr_t);
 bool SHInferObjectLayout(SHFirmware &, uintptr_t);
-NSDictionary *SHResolverReport(const std::shared_ptr<SHFirmware> &);
+shjson::ResolverReport SHResolverReport(const std::shared_ptr<SHFirmware> &);

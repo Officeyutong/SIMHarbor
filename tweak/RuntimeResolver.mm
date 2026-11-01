@@ -323,91 +323,80 @@ bool SHInferObjectLayout(SHFirmware &fw, uintptr_t object) {
     fw.objectStage = 7;
     return true;
 }
-NSDictionary *SHResolverReport(const std::shared_ptr<SHFirmware> &fw) {
+shjson::ResolverReport SHResolverReport(const std::shared_ptr<SHFirmware> &fw) {
+    shjson::ResolverReport report;
     if (!fw)
-        return @{
-            @"state" : @"initializing",
-            @"engine" : @"Module-scoped CoreSymbolication + Capstone"
-        };
-    NSMutableDictionary *values = [NSMutableDictionary dictionary];
-    for (auto &v : fw->plan.values) {
-        bool address = v.second > 4096;
-        uintptr_t origin = fw->cc.contains(v.second)       ? fw->cc.base
-                           : fw->driver.contains(v.second) ? fw->driver.base
-                                                           : 0;
-        NSString *location =
-            address ? [NSString stringWithFormat:@"0x%llx", (unsigned long long)v.second]
-                    : [NSString stringWithFormat:@"+0x%llx", (unsigned long long)v.second];
-        NSMutableDictionary *entry = [@{
-            @"value" : location,
-            @"source" : @(fw->plan.sources.find(v.first) != fw->plan.sources.end()
-                              ? fw->plan.sources.at(v.first).c_str()
-                              : "unresolved")
-        } mutableCopy];
-        if (origin)
-            entry[@"imageOffset"] =
-                [NSString stringWithFormat:@"0x%llx", (unsigned long long)(v.second - origin)];
-        values[@(v.first.c_str())] = entry;
+        return report;
+    report.state = fw->plan.complete ? "resolved" : "unresolved";
+    report.engine = "CoreSymbolication (driver only) + Frida Capstone 5";
+    report.details.emplace();
+    auto &details = *report.details;
+    for (const auto &value : fw->plan.values) {
+        bool address = value.second > 4096;
+        uintptr_t origin = fw->cc.contains(value.second)       ? fw->cc.base
+                           : fw->driver.contains(value.second) ? fw->driver.base
+                                                               : 0;
+        char text[32];
+        snprintf(text, sizeof text, address ? "0x%llx" : "+0x%llx",
+                 (unsigned long long)value.second);
+        shjson::ResolverValue entry;
+        entry.value = text;
+        auto source = fw->plan.sources.find(value.first);
+        entry.source = source == fw->plan.sources.end() ? "unresolved" : source->second;
+        if (origin) {
+            snprintf(text, sizeof text, "0x%llx", (unsigned long long)(value.second - origin));
+            entry.imageOffset = text;
+        }
+        details.values.emplace(value.first, std::move(entry));
     }
-    values[@"driverMember"] = @{
-        @"value" : @(fw->driverMember.load()),
-        @"source" : @"Unique live pointer with EURSimCommandDriver RTTI"
-    };
-    values[@"hardwareSlot"] = @{
-        @"value" : @(fw->hardwareSlot.load()),
-        @"source" : @"Unique hardware-slot field across live SimInfo nodes"
-    };
-    NSMutableArray *errors = [NSMutableArray array];
-    for (auto &s : fw->plan.errors)
-        [errors addObject:@(s.c_str())];
+    details.values["driverMember"] = {
+        fw->driverMember.load(), "Unique live pointer with EURSimCommandDriver RTTI", std::nullopt};
+    details.values["hardwareSlot"] = {fw->hardwareSlot.load(),
+                                      "Unique hardware-slot field across live SimInfo nodes",
+                                      std::nullopt};
+    details.errors = fw->plan.errors;
     if (fw->hookStage.load() == 3)
-        [errors addObject:
-                    @"Transport hook installation did not produce all required original functions"];
-    NSString *objectState = @"Waiting for the Registry service map";
+        details.errors.push_back(
+            "Transport hook installation did not produce all required original functions");
+    details.objectDiscovery = "Waiting for the Registry service map";
     switch (fw->objectStage.load()) {
     case 1:
-        objectState = @"Waiting for a unique live controller";
+        details.objectDiscovery = "Waiting for a unique live controller";
         break;
     case 2:
-        objectState = @"Inspecting the live driver pointer";
+        details.objectDiscovery = "Inspecting the live driver pointer";
         break;
     case 3:
-        objectState = @"Live driver pointer is missing or ambiguous";
+        details.objectDiscovery = "Live driver pointer is missing or ambiguous";
         break;
     case 4:
-        objectState = @"SIM information vector is not ready or could not be validated";
+        details.objectDiscovery = "SIM information vector is not ready or could not be validated";
         break;
     case 6:
-        objectState = @"Hardware-slot field is missing or ambiguous";
+        details.objectDiscovery = "Hardware-slot field is missing or ambiguous";
         break;
     case 7:
-        objectState = @"Live object layout validated";
+        details.objectDiscovery = "Live object layout validated";
         break;
     }
-    return @{
-        @"state" : fw->plan.complete ? @"resolved" : @"unresolved",
-        @"engine" : @"CoreSymbolication (driver only) + Frida Capstone 5",
-        @"analysisMilliseconds" : @(fw->analysisMilliseconds),
-        @"maxMeasuredFootprintBytes" : @(fw->maxMeasuredFootprintBytes),
-        @"driverSymbolCount" : @(fw->driverSymbolCount),
-        @"commcenterUUID" : @(fw->cc.uuid.c_str()),
-        @"driverUUID" : @(fw->driver.uuid.c_str()),
-        @"registryImage" : @(fw->registryImage.c_str()),
-        @"abiCompatible" : @(fw->abiCompatible),
-        @"compiledAbiCompatible" : @(fw->compiledAbiCompatible),
-        @"signaturesValidated" : @(fw->plan.signaturesValidated),
-        @"hookStage" : @(fw->hookStage.load()),
-        @"sharedPtrBytes" : @(sizeof(std::shared_ptr<void>)),
-        @"functionBytes" : @(sizeof(std::function<void(bool)>)),
-        @"codeResolved" : @(fw->plan.complete),
-        @"objectDiscoveryStage" : @(fw->objectStage.load()),
-        @"objectDiscovery" : objectState,
-        @"driverCandidates" : @(fw->driverCandidates.load()),
-        @"hardwareCandidates" : @(fw->hardwareCandidates.load()),
-        @"objectLayoutResolved" : @(fw->driverMember.load() && fw->hardwareSlot.load()),
-        @"values" : values,
-        @"errors" : errors,
-        @"policy" :
-            @"Runtime capability discovery; UUIDs are diagnostic metadata only; no numerical-offset fallback"
-    };
+    details.analysisMilliseconds = fw->analysisMilliseconds;
+    details.maxMeasuredFootprintBytes = fw->maxMeasuredFootprintBytes;
+    details.driverSymbolCount = fw->driverSymbolCount;
+    details.commcenterUUID = fw->cc.uuid;
+    details.driverUUID = fw->driver.uuid;
+    details.registryImage = fw->registryImage;
+    details.abiCompatible = fw->abiCompatible;
+    details.compiledAbiCompatible = fw->compiledAbiCompatible;
+    details.signaturesValidated = fw->plan.signaturesValidated;
+    details.hookStage = fw->hookStage.load();
+    details.sharedPtrBytes = sizeof(std::shared_ptr<void>);
+    details.functionBytes = sizeof(std::function<void(bool)>);
+    details.codeResolved = fw->plan.complete;
+    details.objectDiscoveryStage = fw->objectStage.load();
+    details.driverCandidates = fw->driverCandidates.load();
+    details.hardwareCandidates = fw->hardwareCandidates.load();
+    details.objectLayoutResolved = fw->driverMember.load() && fw->hardwareSlot.load();
+    details.policy =
+        "Runtime capability discovery; UUIDs are diagnostic metadata only; no numerical-offset fallback";
+    return report;
 }

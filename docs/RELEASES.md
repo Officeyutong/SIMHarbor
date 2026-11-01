@@ -1,5 +1,23 @@
 # Release notes / 版本记录
 
+## 1.3.20 — build 1320
+
+### English
+
+- Migrate all project-owned runtime JSON to pinned nlohmann/json 3.12.0. Share typed handshake, request/reply payloads, slot/phase and resolver models between app and tweak; replace string-key IPC dispatch/call sites with validated structures. Keep libeuicc's upstream C/cJSON processing unchanged.
+- Decode bundled guide articles and operator HTTP status into models; serialize error details, logs and CLI snapshots through the same JSON engine. Compile the affected app sources as Objective-C++ while retaining C linkage at C library/helper boundaries.
+- Reject wrong/missing field types, integer overflow, invalid operations, malformed hex, duplicate keys and nesting beyond 64. Preserve wire fields, HMAC and numeric phase values, and align both frame limits at 262,144 bytes including LF. Preserve signed/unsigned integer and boolean Foundation values and Unicode in exports.
+- Add shared-schema/framing ASan/UBSan tests, pinned dependency/license checks and a device `--json-check` fixture mode. Existing error-report checks now compare parsed values rather than serializer whitespace. On the roothide phone, JSON/error/notification fixtures, runtime resolver, slot enumeration and read-only card snapshots pass. No download, deletion, profile switch or real operator notification was used in this validation.
+- Add bilingual shared-JSON documentation and update IPC documentation and open-source notices.
+
+### 简体中文
+
+- 项目自有运行时 JSON 全部迁移至固定的 nlohmann/json 3.12.0。App/Tweak 共用握手、请求／回复载荷、卡槽／阶段及固件报告结构体，以经校验的类型替代字符串键 IPC 分派和调用；libeuicc 上游 C/cJSON 处理保持不变。
+- 内置说明和运营商 HTTP 状态解码为结构体；错误详情、日志及 CLI 快照统一使用同一 JSON 引擎。相关 App 源码改为 Objective-C++，C 库及辅助函数边界保留 C 链接。
+- 拒绝字段类型错误／必填项缺失、整数溢出、未知操作、非法十六进制、重复键及超过 64 层的嵌套。保留报文字段、HMAC 和阶段数字编码，将收发帧上限统一为含 LF 的 262,144 字节；导出保留整数／布尔和 Unicode。
+- 增加共享 schema／分帧 ASan/UBSan 测试、依赖／许可校验及真机 `--json-check` 模拟入口。错误报告测试改为核对解析后的值，不依赖序列化空格。roothide 真机 JSON／错误／通知模拟、运行时解析、卡槽枚举和只读卡片快照通过；本次没有下载、删除、切换配置或实际向运营商发送通知。
+- 增加双语共享 JSON 文档，更新 IPC 文档及开源许可声明。
+
 ## 1.3.19 — build 1319
 
 ### English

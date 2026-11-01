@@ -3,3 +3,7 @@
 *.py text eol=lf
 *.yml text eol=lf
 *.png binary
+
+# Preserve the verified upstream license bytes in source and the bundled copy.
+vendor/nlohmann/LICENSE.MIT whitespace=-blank-at-eol
+viewer/Resources/LICENSE-nlohmann-json.txt whitespace=-blank-at-eol

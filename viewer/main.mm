@@ -1,3 +1,7 @@
+extern "C" int SHJSONCheck(void);
+extern "C" int SHErrorDiagnosticsCheck(void);
+extern "C" int SHNotificationCheck(void);
+#import "../shared/JSONFoundation.h"
 #import "AboutVC.h"
 #import "ErrorDetailsVC.h"
 #import "ErrorDiagnostics.h"
@@ -436,7 +440,7 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
 @property(nonatomic, strong) SHLPA *lpa;
 @property(nonatomic, strong) NSOperationQueue *queue;
 @property(nonatomic, strong) NSDictionary *card;
-@property(nonatomic, copy) NSArray<NSDictionary *> *slots;
+@property(nonatomic) std::vector<shjson::Slot> slots;
 @property(nonatomic, strong) UILabel *statusLabel;
 @property(nonatomic, strong) UILabel *cardLabel;
 @property(nonatomic, strong) UIActivityIndicatorView *spinner;
@@ -625,7 +629,7 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
 - (void)chooseSlot {
     if (self.busy || self.presentedViewController)
         return;
-    if (!self.slots.count) {
+    if (self.slots.empty()) {
         [self refreshCard];
         return;
     }
@@ -639,8 +643,8 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
                                             handler:^(UIAlertAction *action) {
                                                 [self selectSlot:0];
                                             }]];
-    for (NSDictionary *entry in self.slots) {
-        NSInteger slot = [entry[@"logicalSlot"] integerValue];
+    for (const auto &entry : self.slots) {
+        NSInteger slot = entry.logicalSlot;
         NSString *title = [NSString stringWithFormat:SHL(@"Slot %ld"), (long)slot];
         [sheet addAction:[UIAlertAction actionWithTitle:title
                                                   style:UIAlertActionStyleDefault
@@ -670,13 +674,13 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
     NSString *preferredEID = [NSUserDefaults.standardUserDefaults stringForKey:@"SHLastCardEID"];
     [self.queue addOperationWithBlock:^{
         NSError *error = nil;
-        NSArray *slots = [SHLPA availableSlots:&error];
+        auto slots = [SHLPA availableSlots:&error];
         NSDictionary *card = nil, *firstCard = nil;
         SHLPA *selected = nil, *firstEngine = nil;
         BOOL foundRequested = NO;
         NSUInteger readableCount = 0;
-        for (NSDictionary *entry in slots) {
-            int slot = [entry[@"logicalSlot"] intValue];
+        for (const auto &entry : slots.value_or(std::vector<shjson::Slot>{})) {
+            int slot = entry.logicalSlot;
             if (preferred > 0 && preferred != slot)
                 continue;
             foundRequested = YES;
@@ -704,12 +708,10 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
                 error = readError;
                 if (preferred > 0)
                     selected = engine;
-                NSDictionary *state = [[SHBridge shared] request:@{
-                    @"op" : @"status",
-                    @"slot" : @(slot)
-                }
-                                                           error:nil];
-                if (!state || [state[@"phase"] integerValue] != 0)
+                auto stateReply = [[SHBridge shared] request:shjson::Request::status(slot)
+                                                       error:nil];
+                auto state = shjson::body<shjson::StatusReply>(stateReply);
+                if (!state || state->phase != shjson::Phase::Idle)
                     break;
             }
         }
@@ -727,7 +729,7 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
                     ? @"No readable eUICC was found. Check the cards and refresh, or select another slot."
                     : @"The selected slot is unavailable. Refresh the slot list or choose automatic detection.");
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.slots = slots ?: @[];
+            self.slots = slots.value_or(std::vector<shjson::Slot>{});
             self.card = card;
             self.lpa = selected ?: [[SHLPA alloc] initWithSlot:0];
             self.lpa.progress = progress;
@@ -1329,10 +1331,13 @@ static int SHDiagnose(int argc, char **argv) {
             [NSThread sleepForTimeInterval:0.2];
         if (strcmp(argv[1], "--resolver-check") == 0) {
             NSError *error = nil;
-            NSDictionary *reply = nil;
+            std::optional<shjson::Reply> reply;
             for (int i = 0; i < 90; i++) {
-                reply = [[SHBridge shared] request:@{@"op" : @"resolver"} error:&error];
-                if (reply[@"report"] && ![reply[@"report"][@"state"] isEqual:@"initializing"])
+                reply =
+                    [[SHBridge shared] request:shjson::Request::make(shjson::Operation::Resolver)
+                                         error:&error];
+                if (auto report = shjson::body<shjson::ResolverReply>(reply);
+                    report && report->report.state != "initializing")
                     break;
                 [NSThread sleepForTimeInterval:1];
             }
@@ -1340,23 +1345,21 @@ static int SHDiagnose(int argc, char **argv) {
                 fprintf(stderr, "Resolver unavailable\n");
                 return 15;
             }
-            NSData *data = [NSJSONSerialization
-                dataWithJSONObject:reply[@"report"]
-                           options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys
-                             error:nil];
-            fwrite(data.bytes, 1, data.length, stdout);
+            const auto &report = std::get<shjson::ResolverReply>(reply->payload).report;
+            std::string text = shjson::dump(shjson::JSON(report), true);
+            fwrite(text.data(), 1, text.size(), stdout);
             printf("\n");
-            return [reply[@"report"][@"codeResolved"] boolValue] ? 0 : 15;
+            return report.details && report.details->codeResolved ? 0 : 15;
         }
         NSError *e = nil;
-        NSArray *slots = nil;
+        std::optional<std::vector<shjson::Slot>> slots;
         for (int i = 0; i < 20; i++) {
             slots = [SHLPA availableSlots:&e];
-            if (slots.count)
+            if (slots && !slots->empty())
                 break;
             [NSThread sleepForTimeInterval:1];
         }
-        if (!slots.count) {
+        if (!slots || slots->empty()) {
             fprintf(stderr, "Slot discovery failed: %s\n", e.localizedDescription.UTF8String);
             return 2;
         }
@@ -1375,8 +1378,8 @@ static int SHDiagnose(int argc, char **argv) {
         SHLPA *lpa = nil;
         NSDictionary *before = nil;
         NSMutableArray *probes = [NSMutableArray array];
-        for (NSDictionary *entry in slots) {
-            int currentSlot = [entry[@"logicalSlot"] intValue];
+        for (const auto &entry : slots.value_or(std::vector<shjson::Slot>{})) {
+            int currentSlot = entry.logicalSlot;
             if (requestedSlot > 0 && requestedSlot != currentSlot)
                 continue;
             SHLPA *candidate = [[SHLPA alloc] initWithSlot:currentSlot];
@@ -1385,7 +1388,7 @@ static int SHDiagnose(int argc, char **argv) {
             };
             NSError *probeError = nil;
             NSDictionary *card = [candidate readCard:&probeError];
-            NSMutableDictionary *probe = [entry mutableCopy];
+            NSMutableDictionary *probe = [shjson::foundation(shjson::JSON(entry)) mutableCopy];
             probe[@"euiccReadable"] = @(card != nil);
             if (card)
                 probe[@"card"] = card;
@@ -1400,19 +1403,14 @@ static int SHDiagnose(int argc, char **argv) {
                 e = probeError;
                 break;
             }
-            NSDictionary *state = [[SHBridge shared] request:@{
-                @"op" : @"status",
-                @"slot" : @(currentSlot)
-            }
-                                                       error:nil];
-            if (!state || [state[@"phase"] integerValue] != 0)
+            auto stateReply = [[SHBridge shared] request:shjson::Request::status(currentSlot)
+                                                   error:nil];
+            auto state = shjson::body<shjson::StatusReply>(stateReply);
+            if (!state || state->phase != shjson::Phase::Idle)
                 break;
         }
         if (snapshotAll) {
-            NSData *json = [NSJSONSerialization
-                dataWithJSONObject:@{@"slots" : probes}
-                           options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys
-                             error:nil];
+            NSData *json = SHJSONData(@{@"slots" : probes}, YES);
             fwrite(json.bytes, 1, json.length, stdout);
             printf("\n");
             return probes.count ? 0 : 2;
@@ -1425,10 +1423,7 @@ static int SHDiagnose(int argc, char **argv) {
         printf("Native card read OK: %lu profiles\n", (unsigned long)[before[@"profiles"] count]);
         fflush(stdout);
         if (strcmp(argv[1], "--snapshot-check") == 0) {
-            NSData *data = [NSJSONSerialization
-                dataWithJSONObject:before
-                           options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys
-                             error:nil];
+            NSData *data = SHJSONData(before, YES);
             fwrite(data.bytes, 1, data.length, stdout);
             printf("\n");
             return 0;
@@ -1581,12 +1576,12 @@ static int SHDiagnose(int argc, char **argv) {
     }
 }
 int main(int argc, char *argv[]) {
+    if (argc > 1 && strcmp(argv[1], "--json-check") == 0)
+        return SHJSONCheck();
     if (argc > 1 && strcmp(argv[1], "--notification-check") == 0) {
-        extern int SHNotificationCheck(void);
         return SHNotificationCheck();
     }
     if (argc > 1 && strcmp(argv[1], "--error-check") == 0) {
-        extern int SHErrorDiagnosticsCheck(void);
         return SHErrorDiagnosticsCheck();
     }
     if (argc > 1 && strcmp(argv[1], "--allow-network") == 0) {

@@ -2,7 +2,7 @@
 
 **English** | [简体中文](IPC.zh-CN.md)
 
-This document describes the protocol introduced in SIMHarbor 1.3.8 with unchanged framing/authentication through 1.3.15. It is an internal protocol, without a negotiated protocol version. Sources: [app bridge](../viewer/Bridge.m), [extension](../tweak/Apdu.mm), [wire helpers](../shared/Wire.h), and [pairing generator](../scripts/generate_pairing_key.py).
+This document describes the protocol introduced in SIMHarbor 1.3.8 with unchanged framing/authentication through 1.3.20. It is an internal protocol, without a negotiated protocol version. Sources: [app bridge](../viewer/Bridge.mm), [extension](../tweak/Apdu.mm), [wire helpers](../shared/Wire.h), and [pairing generator](../scripts/generate_pairing_key.py).
 
 ## Transport and ownership
 
@@ -16,7 +16,7 @@ In 1.3.8, socket/bind/listen failures are logged and retried after one second. A
 
 Each message is a UTF-8 JSON object followed by a single LF byte (`0x0a`). TCP packet boundaries have no meaning. The reader consumes bytes through LF, then parses a dictionary; EOF, socket errors, invalid JSON, non-object JSON, or a line exceeding the reader bound fail the read.
 
-The current helper allows at most 262,144 serialized JSON bytes on write, then appends LF. The reader examines at most 262,144 bytes **including LF**, so interoperable payloads must be at most **262,143 bytes excluding LF**. This one-byte boundary mismatch is an implementation limitation. Normal APDU messages are much smaller. Hex fields contain pairs of hexadecimal characters; emitted hex is lowercase. The generic decoder accepts either case, while each operation adds its own constraints.
+The frame limit is 262,144 bytes including LF: JSON payloads must be at most 262,143 bytes on both write and read. Version 1.3.20 aligns the writer with the existing reader limit, removing the prior one-byte mismatch. Normal APDU messages are much smaller. Hex fields contain pairs of hexadecimal characters; emitted hex is lowercase and decoding accepts either case.
 
 ## Mutual authentication
 
@@ -68,7 +68,7 @@ An operation failure keeps the same ID:
 {"id":"example-2","ok":false,"error":"The channel is not open."}
 ```
 
-These are separate LF-terminated JSON messages, not one JSON document. The current implementation is a paired internal client/server and is not a hardened public API for arbitrary malformed field types.
+These are separate LF-terminated JSON messages, not one JSON document. The paired client/server uses shared C++ request/reply structures with nlohmann/json 3.12.0. Required fields, types, integer ranges, operations and payloads are checked before dispatch; duplicate keys, invalid UTF-8 and nesting beyond 64 are rejected. Invalid frames or schemas close the connection. Unknown fields are ignored. See [shared JSON models](JSON_MODELS.md).
 
 ## State, timeouts and recovery
 

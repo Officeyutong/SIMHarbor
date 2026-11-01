@@ -11,5 +11,10 @@
   "toolchain": {
     "url": "https://github.com/L1ghtmann/llvm-project/releases/download/test-210562a/iOSToolchain-x86_64.tar.xz",
     "sha256": "a72a7a577e2fbe2838b6b5e9c72034fa7d114af96f0e1d4b016f18730ce4056e"
+  },
+  "nlohmann_json": {
+    "version": "3.12.0",
+    "url": "https://github.com/nlohmann/json/tree/v3.12.0",
+    "sha256": "aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63"
   }
 }

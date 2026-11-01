@@ -68,7 +68,8 @@
     NSMutableArray *parts = [NSMutableArray array];
     for (NSString *name in @[
              @"LICENSE-SIMHarbor", @"THIRD_PARTY_NOTICES", @"LICENSE-LGPL-2.1",
-             @"LICENSE-Frida-Gum", @"LICENSE-Capstone", @"LICENSE-Capstone-LLVM"
+             @"LICENSE-Frida-Gum", @"LICENSE-Capstone", @"LICENSE-Capstone-LLVM",
+             @"LICENSE-nlohmann-json"
          ]) {
         NSString *path = [NSBundle.mainBundle pathForResource:name ofType:@"txt"];
         NSString *body = path ? [NSString stringWithContentsOfFile:path

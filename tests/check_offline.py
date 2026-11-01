@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Linux-only checks. Never connects to or installs anything on an iOS device."""
 
+import hashlib
 import json
 import pathlib
 import re
@@ -23,6 +24,22 @@ def strings(path):
     return result
 
 
+def dependencies():
+    folder = ROOT / "vendor/nlohmann"
+    provenance = json.loads((folder / "PROVENANCE.json").read_text())
+    assert provenance["version"] == "3.12.0"
+    for name, metadata in provenance["files"].items():
+        assert hashlib.sha256((folder / name).read_bytes()).hexdigest() == metadata["sha256"]
+    assert (folder / "LICENSE.MIT").read_bytes() == (
+        ROOT / "viewer/Resources/LICENSE-nlohmann-json.txt"
+    ).read_bytes()
+    assert (
+        json.loads((ROOT / "ci/dependencies.json").read_text())["nlohmann_json"]["sha256"]
+        == provenance["files"]["json.hpp"]["sha256"]
+    )
+    print("PASS: pinned nlohmann/json 3.12.0 sources and bundled MIT license")
+
+
 def localization():
     resources = ROOT / "viewer/Resources"
     en = strings(resources / "en.lproj/Localizable.strings")
@@ -35,7 +52,7 @@ def localization():
         assert en[key] == key
         assert placeholder.findall(key) == placeholder.findall(zh[key]), key
         assert not re.search(r"[\u4e00-\u9fff]", key), key
-    for source in (ROOT / "viewer").glob("*.m"):
+    for source in (ROOT / "viewer").glob("*.m*"):
         for match in re.finditer(r'SHL\(\s*@("(?:\\.|[^"\\])*")\s*\)', source.read_text()):
             key = json.loads(match[1])
             assert key in en, (source.name, key)
@@ -43,7 +60,7 @@ def localization():
         r'return\s+("(?:\\.|[^"\\])*")\s*;', (ROOT / "viewer/SignalCodec.c").read_text()
     ):
         assert json.loads(match[1]) in en
-    for source in [ROOT / "tweak/Apdu.mm", ROOT / "viewer/LPAEngine.m"]:
+    for source in [ROOT / "tweak/Apdu.mm", ROOT / "viewer/LPAEngine.mm"]:
         for match in re.finditer(
             r'(?:fail\(|stage:|warn:|failure:)\s*@("(?:\\.|[^"\\])*")', source.read_text()
         ):
@@ -74,6 +91,23 @@ def native():
             check=True,
         )
         subprocess.run([str(slots)], check=True)
+        json_binary = pathlib.Path(folder) / "test-json"
+        subprocess.run(
+            [
+                "clang++-22",
+                "-std=c++17",
+                "-g",
+                "-O1",
+                "-fsanitize=address,undefined",
+                "-fno-omit-frame-pointer",
+                "-pthread",
+                str(ROOT / "tests/test_json.cpp"),
+                "-o",
+                str(json_binary),
+            ],
+            check=True,
+        )
+        subprocess.run([str(json_binary)], check=True)
         binary = pathlib.Path(folder) / "test-signals"
         sources = [ROOT / "tests/test_signals.c", ROOT / "viewer/SignalCodec.c"]
         sources += sorted((ROOT / "vendor/euicc").glob("*.c"))
@@ -97,6 +131,7 @@ def native():
 
 
 if __name__ == "__main__":
+    dependencies()
     localization()
     subprocess.run(["python3", str(ROOT / "scripts/build_docs.py"), "--check"], check=True)
     subprocess.run(["python3", str(ROOT / "tests/check_docs_privacy.py")], check=True)

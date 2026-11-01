@@ -1,3 +1,5 @@
+#import "../shared/JSONFoundation.h"
+#include "../shared/Protocol.hpp"
 #import "DocumentsVC.h"
 #import "Localization.h"
 
@@ -137,13 +139,11 @@ static NSAttributedString *DocRender(NSString *markdown) {
     NSString *filename = [@"Documentation-" stringByAppendingString:SHResolvedLanguage()];
     NSString *path = [NSBundle.mainBundle pathForResource:filename ofType:@"json"];
     NSData *data = path ? [NSData dataWithContentsOfFile:path] : nil;
-    id articles = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-    if ([articles isKindOfClass:NSArray.class] && [articles count] == 1) {
-        id article = [articles firstObject];
-        if ([article isKindOfClass:NSDictionary.class] && [article[@"id"] isEqual:@"guide"] &&
-            [article[@"body"] isKindOfClass:NSString.class])
-            self.markdown = article[@"body"];
-    }
+    shjson::JSON document;
+    std::vector<shjson::Article> articles;
+    if (data && shjson::parseData(data, document, 1024 * 1024) &&
+        shjson::read(document, articles) && articles.size() == 1 && articles.front().id == "guide")
+        self.markdown = SHString(articles.front().body);
     self.textView = [[UITextView alloc] initWithFrame:CGRectZero];
     self.textView.translatesAutoresizingMaskIntoConstraints = NO;
     self.textView.editable = NO;

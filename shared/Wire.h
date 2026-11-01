@@ -48,36 +48,6 @@ static inline BOOL SHSame(NSString *a, NSString *b) {
         diff |= p[i] ^ q[i];
     return diff == 0;
 }
-static inline BOOL SHWrite(int fd, NSDictionary *obj) {
-    NSData *d = [NSJSONSerialization dataWithJSONObject:obj options:0 error:nil];
-    if (!d || d.length > 262144)
-        return NO;
-    NSMutableData *line = [d mutableCopy];
-    uint8_t nl = 10;
-    [line appendBytes:&nl length:1];
-    const uint8_t *p = (const uint8_t *)line.bytes;
-    size_t n = line.length;
-    while (n) {
-        ssize_t k = send(fd, p, n, 0);
-        if (k <= 0)
-            return NO;
-        p += k;
-        n -= k;
-    }
-    return YES;
-}
-static inline NSDictionary *SHRead(int fd) {
-    NSMutableData *d = [NSMutableData data];
-    uint8_t b;
-    while (d.length < 262144) {
-        ssize_t n = recv(fd, &b, 1, 0);
-        if (n != 1)
-            return nil;
-        if (b == 10) {
-            id o = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
-            return [o isKindOfClass:NSDictionary.class] ? o : nil;
-        }
-        [d appendBytes:&b length:1];
-    }
-    return nil;
-}
+#ifdef __cplusplus
+#include "Framing.hpp"
+#endif

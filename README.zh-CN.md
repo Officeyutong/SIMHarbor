@@ -51,7 +51,9 @@ GitHub Actions 文件：`.github/workflows/build.yml`。
 
 Release 要求三种构建全部成功，包含三个 `SIMHarbor_VERSION_方案.deb`、合并的 `SHA256SUMS` 以及各方案的构建信息。
 
-发布新版时修改 `VERSION`，并按需递增 `BUILD_NUMBER`。`control` 和 App 的 `Info.plist` 从 `packaging/` 模板自动生成，无需手动同步。源码版本目前为 1.3.19（构建号 1319），变更见[版本记录](docs/RELEASES.md)。
+发布新版时修改 `VERSION`，并按需递增 `BUILD_NUMBER`。`control` 和 App 的 `Info.plist` 从 `packaging/` 模板自动生成，无需手动同步。源码版本目前为 1.3.20（构建号 1320），变更见[版本记录](docs/RELEASES.md)。
+
+项目自有运行时 JSON 使用 nlohmann/json 3.12.0，App/Tweak 共用类型化模型；libeuicc 保留上游 cJSON。版本及来源校验记录见 `vendor/nlohmann/PROVENANCE.json`。
 
 ## 测试与验证范围
 
@@ -73,6 +75,7 @@ App 仅内置双语使用说明，技术文章保留在仓库中：
 - [多卡槽发现与路由](docs/MULTI_SLOT.zh-CN.md)
 - [Patchfinder 是怎么工作的](docs/PATCHFINDER.zh-CN.md)
 - [通过 CommCenter 内部函数与基带通信](docs/COMMCENTER_TRANSPORT.zh-CN.md)
+- [共享 JSON 结构体与校验](docs/JSON_MODELS.zh-CN.md)
 - [App 与 CommCenter 通信协议](docs/IPC.zh-CN.md)
 - [移植指南](docs/manual/zh-Hans/porting.md)
 - [验证范围](docs/VALIDATION.md)
