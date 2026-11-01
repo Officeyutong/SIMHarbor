@@ -24,6 +24,23 @@ static shresolve::Plan resolved;
 static uintptr_t location(const char *key) { return resolved.values.at(key); }
 static std::atomic<void *> registryMap{nullptr};
 static std::atomic<void *> iface{nullptr}, driver{nullptr};
+// Session state machine (one retained management channel across all app requests):
+//
+//   Idle --open--> Opening --channel retained / direct opened callback--> Open
+//   Open --transmit--> Transmitting --exchange completion--> Open
+//   Open --explicit close / disconnect cleanup--> Closing --completion--> Idle
+//   Opening --opening flow completes without a retained channel--> Idle
+//
+// Opening -> Open: closeHook defers the sender's automatic close, or the direct
+// opened block records the channel. Transmitting -> Open: closeHook or the direct
+// completion callback finishes the exchange while retaining the channel.
+// Closing -> Idle and Opening -> Idle: completionHook or the direct completion
+// callback finishes the corresponding flow. Callbacks store phase before signalDone.
+// Open describes channel availability, not APDU success; SW1/SW2 is checked separately.
+// Only Idle accepts open; only Open accepts transmit or a nontrivial close.
+// A timeout does not roll back phase or prove that the card did not execute a command.
+// Disconnect cleanup closes Open, or waits for Opening/Transmitting to reach Open
+// before attempting close; it does not forcibly reset a busy or timed-out session.
 // Keep these explicit values stable: status/slots expose them through the IPC protocol.
 enum class Phase : int { Idle = 0, Opening = 1, Open = 2, Transmitting = 3, Closing = 4 };
 static std::atomic<Phase> phase{Phase::Idle};
