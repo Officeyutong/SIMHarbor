@@ -31,7 +31,23 @@ The SQLite catalog separates device/build targets, URL-deduplicated assets and s
 
 A report applies to its named input firmware, not every device on that iOS version. A beta label can be imprecise, so the report separately matches actual input builds/devices against the stable catalog. **Not listed means unknown**, not unchanged. Section sizes, UUIDs, symbols and strings are useful screening evidence; they do not constitute instruction/CFG diffs or prove that private member offsets are unchanged. Neither collector establishes runtime compatibility.
 
-Only after identifying gaps should individual archives/images be acquired, target Mach-O slices hashed/deduplicated, and function-level diffs or offline resolver replays performed. Those stages are not implemented by these collectors. Preserve code-access displacements during instruction normalization. Compare CommCenter with its driver module, and validate on devices separately.
+## Targeted acquisition and static inspection
+
+Create an explicit `reports/targeted-download-plan.json` outside the repository, with an `assets` list. Each asset records its catalog ID, version, build, device, exact Apple CDN HTTPS URL, byte size and published SHA256. The plan also records `total_bytes` and selection reasons. Selection is a research sampling decision, not proof that unselected firmware is identical.
+
+```sh
+python3 research/firmware/change_points.py "$CORPUS"
+python3 research/firmware/download.py "$CORPUS" --plan "$CORPUS/reports/targeted-download-plan.json" --budget-gib 40 --workers 4
+python3 research/firmware/extract.py "$CORPUS" --plan "$CORPUS/reports/targeted-download-plan.json" --asset CATALOG_ASSET_ID
+python3 research/firmware/macho_inspection.py "$CORPUS" "$CORPUS/artifacts/CATALOG_ASSET_ID"
+python3 research/firmware/test_targeted.py
+```
+
+The downloader uses aria2, four files in parallel by default and eight connections per file, with resumption and SHA256 validation. It never expands the saved selection from the full catalog. Sparse partial-file length is not treated as downloaded byte count. Extraction requires a verified archive and matching BuildManifest, selects one board-specific customer erase identity (excluding RecoveryOS), uses read-only APFS FUSE mounts, extracts OS/SystemOS components sequentially, and unmounts before removing temporary images. Put pinned `ipsw` and `apfs-fuse-build/apfs-fuse` tools under `$CORPUS/tools`; AEA images are decrypted through `ipsw` when necessary. Keep tool versions and source commits in corpus provenance.
+
+Static inspection uses the pinned ipsw CLI and Python Capstone (validated with 5.0.7). It records UUIDs, code hashes, function starts, selected demangled APDU/readiness signatures and local disassemblies. The current inspector requires thin little-endian 64-bit Mach-O targets. Code hashes include address-dependent instructions; differences are binary evidence, not proof of different behavior. Static object-field discovery and automatic cross-version offset inference are not implemented by this inspector.
+
+Only after identifying gaps should individual archives/images be acquired, target Mach-O slices hashed/deduplicated, and function-level diffs or offline resolver replays performed. Preserve code-access displacements during instruction normalization. Compare CommCenter with its driver module, and validate on devices separately.
 
 # 固件覆盖研究
 
@@ -44,3 +60,5 @@ Only after identifying gaps should individual archives/images be acquired, targe
 优先阅读 `reports/PRECOMPUTED_DIFFS.md` 和对应 JSON。采集器按固定提交的 Git 目录树发现报告，避免首页错误链接漏项；报告包含原始输入机型／Build、校验值、错误及元数据不一致警告。设备与 Build 按输入文件名逐一绑定，正文中的示例不会被当作输入。`analyze.py` 离线生成 `RESOLVER_RESEARCH.md`／`resolver-research.json`，记录 APDU／就绪／卡槽／生命周期相关变动的原始行号及逐版本缺口。某机型报告不能外推至同版本所有设备；“未列出”表示未知，不能解释为二进制相同。节／UUID／符号／字符串差异可用于筛选，但不能替代指令／控制流图差异或证明成员偏移不变。
 
 待识别出报告缺口后，再按需获取单个镜像、对目标二进制去重、运行函数级差异及静态 resolver 回归；这些步骤尚未包含在当前采集器中。静态通过也不等于真机兼容。
+
+按需下载流程要求先保存明确的资源清单与 SHA256，再通过 aria2 四文件并行、每文件八连接下载；不会自动扩展至全部固件。提取阶段校验 BuildManifest，以只读方式挂载 APFS，并回收临时镜像。`macho_inspection.py` 生成 UUID、代码哈希、函数边界、APDU／就绪函数签名及反汇编。代码哈希差异不等于行为差异；当前检查器也不自动推导私有成员偏移。
