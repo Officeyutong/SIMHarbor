@@ -24,6 +24,9 @@ MODULES = (
     "libCommCenterBase.dylib",
 )
 MAX_DOCUMENT = 16 * 1024 * 1024
+PAIR_DIRECTORY = re.compile(
+    r"(\d+(?:_\d+){0,2})_(\d+[A-Z]\d+[a-z]?)_+vs_(\d+(?:_\d+){0,2})_(\d+[A-Z]\d+[a-z]?)\Z"
+)
 
 
 def download(root, commit, path):
@@ -70,27 +73,129 @@ def entries(readme):
     return result
 
 
-def collect(root, commit):
+def firmware_inputs(text):
+    """Bind devices to each input's own build, using only the input section."""
+    section = re.search(r"^## (?:IPSWs|OTAs)\s*\n(.*?)(?=^## |\Z)", text, re.MULTILINE | re.DOTALL)
+    if not section:
+        return []
+    filenames = sorted(set(re.findall(r"(?:iPhone|iPad|iPod)[\w,.-]+\.(?:ipsw|zip)", section[1])))
+    result = []
+    for filename in filenames:
+        build = re.search(r"_(\d+[A-Z]\d+[a-z]?)_(?:Restore|OTA)", filename)
+        if build:
+            result.append(
+                {
+                    "filename": filename,
+                    "build": build[1],
+                    "devices": sorted(set(re.findall(r"iPhone\d+,\d+", filename))),
+                }
+            )
+    return result
+
+
+def upstream_tree(root, commit, sha):
+    """Read bounded Git metadata at immutable object IDs, never archive contents."""
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError("Invalid tree object ID")
+    path = root / "sources/ipsw-diffs" / commit / ".trees" / (sha + ".json")
+    if path.exists():
+        result = json.loads(path.read_text())
+    else:
+        url = "https://api.github.com/repos/blacktop/ipsw-diffs/git/trees/" + sha
+        request = urllib.request.Request(url, headers={"User-Agent": "SIMHarbor-firmware-research"})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            raw = response.read(MAX_DOCUMENT + 1)
+        if len(raw) > MAX_DOCUMENT:
+            raise ValueError("Git tree exceeds collection limit")
+        result = json.loads(raw)
+        dump(path, result)
+    if result.get("truncated"):
+        raise ValueError("Truncated upstream tree cannot establish report coverage")
+    return result["tree"]
+
+
+def discover(root, commit, indexed):
+    """Enumerate actual pair directories, preserving broken/ambiguous index evidence."""
+    tree = upstream_tree(root, commit, commit)
+    ios = next(node for node in tree if node["path"] == "iOS" and node["type"] == "tree")
+    pending = [("iOS", ios["sha"])]
+    directories = {}
+    while pending:
+        prefix, sha = pending.pop()
+        for node in upstream_tree(root, commit, sha):
+            if node["type"] != "tree":
+                continue
+            path = prefix + "/" + node["path"]
+            match = PAIR_DIRECTORY.fullmatch(node["path"])
+            if match:
+                left, old, right, new = match.groups()
+                versions = [left.replace("_", "."), right.replace("_", ".")]
+                if all((14, 0, 0) <= version_key(v) <= (26, 0, 1) for v in versions):
+                    directories[path] = (versions, [old, new])
+            elif re.fullmatch(r"iPhone\d+_\d+", node["path"]):
+                pending.append((path, node["sha"]))
+    pairs = []
+    for directory, (versions, builds) in sorted(directories.items()):
+        aliases = [entry for entry in indexed if posixpath.dirname(entry["path"]) == directory]
+        label = f"{versions[0]} ({builds[0]}) .vs {versions[1]} ({builds[1]})"
+        pairs.append(
+            {
+                "label": label,
+                "path": aliases[0]["path"] if aliases else directory + "/README.md",
+                "versions": versions,
+                "directory_builds": builds,
+                "index_labels": [entry["label"] for entry in aliases],
+                "prerelease_label": any(entry["prerelease_label"] for entry in aliases),
+            }
+        )
+    broken = [entry for entry in indexed if posixpath.dirname(entry["path"]) not in directories]
+    return pairs, broken
+
+
+def collect(root, commit, scan_tree=False):
     readme = download(root, commit, "README.md")
     pairs = entries(readme)
+    broken = []
+    if scan_tree:
+        pairs, broken = discover(root, commit, pairs)
 
     def one(pair):
         result = dict(pair, modules={}, errors=[], provenance={})
         try:
-            text = download(root, commit, pair["path"])
-            result["provenance"][pair["path"]] = hashlib.sha256(text.encode()).hexdigest()
-            result["firmware_filenames"] = sorted(
-                set(re.findall(r"iPhone[\w,.-]+\.(?:ipsw|zip)", text))
+            try:
+                text = download(root, commit, result["path"])
+            except urllib.error.HTTPError as error:
+                if error.code != 404 or not scan_tree or not result["path"].endswith("/README.md"):
+                    raise
+                result["path"] = posixpath.dirname(result["path"]) + "/TOC.md"
+                text = download(root, commit, result["path"])
+            headings = re.findall(r"^# ([^\n]+)", text, re.MULTILINE)
+            if headings:
+                result["label"] = headings[0]
+                result["prerelease_label"] = bool(
+                    re.search(r"\b(?:beta|RC)\b", headings[0], re.IGNORECASE)
+                )
+            result["metadata_warnings"] = []
+            if any(label != result["label"] for label in result.get("index_labels", [])):
+                result["metadata_warnings"].append("Homepage label differs from report heading")
+            result["provenance"][result["path"]] = hashlib.sha256(text.encode()).hexdigest()
+            result["inputs"] = firmware_inputs(text)
+            result["firmware_filenames"] = [item["filename"] for item in result["inputs"]]
+            result["devices"] = sorted(
+                {device for item in result["inputs"] for device in item["devices"]}
             )
-            result["devices"] = sorted(set(re.findall(r"\biPhone\d+,\d+(?=_)", text)))
             # These reflect the actual input names, not guessed coverage of other devices.
-            result["builds"] = sorted(
-                set(re.findall(r"_(\d+[A-Z]\d+[a-z]?)_(?:Restore|OTA)", text))
-            )
+            result["builds"] = sorted({item["build"] for item in result["inputs"]})
+            if result.get("directory_builds") and set(result["directory_builds"]) != set(
+                result["builds"]
+            ):
+                result["metadata_warnings"].append(
+                    "Directory builds differ from recorded firmware inputs"
+                )
             for module in MODULES:
                 links = re.findall(r"\[([^\]]+)\]\(([^)]+)\)", text)
                 candidates = [
-                    posixpath.normpath(posixpath.join(posixpath.dirname(pair["path"]), target))
+                    posixpath.normpath(posixpath.join(posixpath.dirname(result["path"]), target))
                     for label, target in links
                     if label.rsplit("/", 1)[-1] == module
                     and not target.startswith(("http:", "https:", "#"))
@@ -137,24 +242,32 @@ def collect(root, commit):
     catalog_builds = {r[0] for r in db.execute("SELECT build FROM release")}
     for pair in results:
         pair["catalog_matches"] = [
-            {"build": build, "device": device}
-            for build in pair.get("builds", [])
-            for device in pair.get("devices", [])
+            {"build": item["build"], "device": device}
+            for item in pair.get("inputs", [])
+            for device in item["devices"]
             if db.execute(
                 "SELECT 1 FROM target t JOIN release r ON r.id=t.release_id WHERE r.build=? AND t.device=?",
-                (build, device),
+                (item["build"], device),
             ).fetchone()
         ]
-        pair["both_inputs_in_stable_iphone_catalog"] = (
-            len({m["build"] for m in pair["catalog_matches"]}) == 2
+        pair["both_inputs_in_stable_iphone_catalog"] = len(pair.get("inputs", [])) == 2 and all(
+            item["devices"]
+            and all(
+                {"build": item["build"], "device": device} in pair["catalog_matches"]
+                for device in item["devices"]
+            )
+            for item in pair.get("inputs", [])
         )
     observed = {m["build"] for pair in results for m in pair["catalog_matches"]}
+    db.close()
     byte_count = sum(p.stat().st_size for p in (root / "sources/ipsw-diffs" / commit).rglob("*.md"))
     summary = {
         "schema_version": 1,
         "repository": REPOSITORY,
         "commit": commit,
         "pair_count": len(results),
+        "discovery": "pinned_git_tree" if scan_tree else "homepage_links_only",
+        "broken_homepage_links": broken,
         "both_inputs_in_stable_iphone_catalog": sum(
             r["both_inputs_in_stable_iphone_catalog"] for r in results
         ),
@@ -239,7 +352,7 @@ def main():
     )
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         parser.error("Expected a full upstream commit hash")
-    collect(args.root, commit)
+    collect(args.root, commit, scan_tree=True)
 
 
 if __name__ == "__main__":

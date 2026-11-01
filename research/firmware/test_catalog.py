@@ -9,12 +9,66 @@ import sqlite3
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
+import analyze
 import catalog
 import precomputed
 
 
 class ScopeTests(unittest.TestCase):
+    def test_inputs_ignore_body_examples_and_keep_device_build_pairs(self):
+        text = """## IPSWs
+`iPhone14,5_17.2_21C62_Restore.ipsw`
+`iPhone15,2_17.2.1_21C66_Restore.ipsw`
+## MachO
+"iPhone16,1_17.3_21D50_Restore.ipsw"
+"""
+        inputs = precomputed.firmware_inputs(text)
+        self.assertEqual(
+            [(i["build"], i["devices"]) for i in inputs],
+            [("21C62", ["iPhone14,5"]), ("21C66", ["iPhone15,2"])],
+        )
+        self.assertFalse(precomputed.firmware_inputs('"iPhone14,5_17.2_21C62_Restore.ipsw"'))
+
+    def test_tree_discovery_recovers_broken_homepage_links(self):
+        commit, ios = "a" * 40, "b" * 40
+        trees = {
+            commit: [{"path": "iOS", "type": "tree", "sha": ios}],
+            ios: [
+                {"path": "18_5_22F5053f__vs_18_5_22F5053j", "type": "tree", "sha": "c" * 40},
+                {"path": "26_0_23A345__vs_26_0_2_23A999", "type": "tree", "sha": "d" * 40},
+            ],
+        }
+        link = {
+            "path": "iOS/18_5_wrong__vs_18_5_wrong/README.md",
+            "label": "wrong",
+            "prerelease_label": True,
+        }
+        with patch.object(
+            precomputed, "upstream_tree", side_effect=lambda root, c, sha: trees[sha]
+        ):
+            pairs, broken = precomputed.discover(Path("unused"), commit, [link])
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0]["path"], "iOS/18_5_22F5053f__vs_18_5_22F5053j/README.md")
+        self.assertEqual(broken, [link])
+
+    def test_evidence_distinguishes_function_size_from_symbol_and_string_changes(self):
+        rows = analyze.evidence("""Symbols:
++ __ZNsendSimApdu_start_block_invoke.7
+  __ZNsendSimApdu_close
+Functions:
+~ __ZNisSimReady : 64 -> 88
+CStrings:
+- "isSimReady diagnostic"
+""")
+        self.assertEqual(len(rows), 3)
+        self.assertIsNone(rows[0]["function_size"])
+        self.assertEqual(
+            rows[1]["function_size"], {"symbol": "__ZNisSimReady", "old": 64, "new": 88}
+        )
+        self.assertEqual(rows[2]["section"], "CStrings")
+
     def test_boundaries_and_release_channels(self):
         for version in ("14.0", "14.8.1", "16.4.1 (a)", "18.7.11", "26.0", "26.0.1"):
             self.assertTrue(catalog.in_scope({"version": version}), version)
@@ -50,9 +104,9 @@ class ScopeTests(unittest.TestCase):
             pair = reports / "iOS/pair/README.md"
             pair.parent.mkdir(parents=True)
             pair.write_text(
-                "`iPhone15,2_17.2_21C62_Restore.ipsw`\n`iPhone15,2_17.2.1_21C66_Restore.ipsw`\n"
+                "## IPSWs\n\n`iPhone15,2_17.2_21C62_Restore.ipsw`\n`iPhone15,2_17.2.1_21C66_Restore.ipsw`\n"
             )
-            with sqlite3.connect(root / "catalog.sqlite") as db:
+            with contextlib.closing(sqlite3.connect(root / "catalog.sqlite")) as db:
                 db.executescript(
                     "CREATE TABLE release(id TEXT,build TEXT); CREATE TABLE target(release_id TEXT,device TEXT); INSERT INTO release VALUES ('a','21C62'),('b','21C66'); INSERT INTO target VALUES ('a','iPhone14,5'),('b','iPhone14,5');"
                 )
@@ -132,7 +186,7 @@ class ScopeTests(unittest.TestCase):
             self.assertEqual(summary["device_count"], 3)
             self.assertEqual(summary["unique_assets"], {"ipsw": 1, "ota": 1})
             self.assertEqual(summary["without_any_asset_pairs"], 1)
-            with sqlite3.connect(root / "catalog.sqlite") as db:
+            with contextlib.closing(sqlite3.connect(root / "catalog.sqlite")) as db:
                 self.assertEqual(
                     db.execute(
                         "SELECT boards,prerequisites,active FROM delivery d JOIN asset a ON a.id=d.asset WHERE a.kind='ota'"
