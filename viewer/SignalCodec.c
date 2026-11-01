@@ -86,3 +86,12 @@ int SHBindChannel(uint8_t cla, int channel) {
         return (cla & 0xfc) | channel;
     return (cla & 0x90) | 0x40 | ((cla & 0x0c) ? 0x20 : 0) | (channel - 4);
 }
+const char *SHRawStatusIssue(uint16_t status) {
+    if (status == 0x9000)
+        return NULL;
+    if ((status & 0xff00) == 0x6100)
+        return "More response data is available (61xx). Raw APDU mode stopped before GET RESPONSE. Fill the Get EID example to use ES10 DER and collect the complete response.";
+    if ((status & 0xff00) == 0x6c00)
+        return "The card requested a different response length (6Cxx). Raw APDU mode does not retry. Check SW2 and the command's Le before sending a corrected command.";
+    return "Stopped after a non-9000 status. Check the response before continuing.";
+}

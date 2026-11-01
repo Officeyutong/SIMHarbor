@@ -32,7 +32,7 @@ The User guide tab opens these instructions directly. Select text or use Copy to
 
 Logs shows English raw signaling with copy, clear and `.log` export. Logs can contain activation credentials and card identifiers; review them before sharing.
 
-Signal console accepts raw APDU batches or an ES10 DER request and shows the response. Start with its read-only Get EID example when checking the connection. Sending requires confirmation; commands can modify card data. Raw APDU mode does not automatically retry commands or fetch follow-up responses. DER mode handles the configured request fragmentation and response collection.
+Signal console accepts raw APDU batches or an ES10 DER request and shows the response. Start with its read-only Get EID example when checking the connection. The console defaults to ES10 DER, and filling the example selects that mode so `61xx` follow-up data is collected. In raw mode, `61xx` means more response data is available; `6Cxx` requests a corrected response length. Neither is silently retried. Sending requires confirmation; commands can modify card data. Raw APDU mode does not automatically retry commands or fetch follow-up responses. DER mode handles the configured request fragmentation and response collection.
 
 ## About
 

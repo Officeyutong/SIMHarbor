@@ -1,5 +1,19 @@
 # Release notes / 版本记录
 
+## 1.3.18 — build 1318
+
+### English
+
+- Make ES10 DER the default signal-console mode. Filling the read-only Get EID example selects DER so STORE DATA and subsequent `61xx` / GET RESPONSE exchanges produce the complete result rather than a raw-mode stop.
+- Keep raw APDU batches explicit: do not silently fetch responses or resend commands. Explain `61xx` pending response data and `6Cxx` response-length correction separately from other non-9000 stops. Update the bilingual guide and status-message regression checks.
+- Offline sanitizer/localization checks pass. On the roothide phone, raw Get EID returns `6115` with continuation guidance; the example selects DER and returns a complete 21-byte response whose EID matches the card list. These tests only read card data.
+
+### 简体中文
+
+- 自定义信令默认使用 ES10 DER，填入只读 Get EID 示例也会切到此模式，完成 STORE DATA 及后续 `61xx` / GET RESPONSE 交换，返回完整结果，避免示例在原始模式下提前停止。
+- 原始 APDU 批次仍按用户输入执行，不静默续取或重发命令；分别解释 `61xx` 后续响应和 `6Cxx` 响应长度修正，与其他非 9000 停止区分。更新双语使用说明及状态消息回归检查。
+- 离线 sanitizer/本地化检查通过；roothide 真机验证原始 Get EID 返回 `6115` 并显示续取说明，示例切到 DER 后得到完整 21 字节响应，EID 与卡片列表一致。本次仅进行了只读卡片操作。
+
 ## 1.3.17 — build 1317
 
 ### English

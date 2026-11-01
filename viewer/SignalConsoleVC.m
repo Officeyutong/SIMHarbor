@@ -54,7 +54,7 @@
         [stack.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor constant:-40]
     ]];
     self.mode = [[UISegmentedControl alloc] initWithItems:@[ SHL(@"Raw APDU"), @"ES10 DER" ]];
-    self.mode.selectedSegmentIndex = 0;
+    self.mode.selectedSegmentIndex = 1;
     [self.mode addTarget:self
                   action:@selector(modeChanged)
         forControlEvents:UIControlEventValueChanged];
@@ -147,8 +147,10 @@
 - (void)fillExample {
     if (self.busy)
         return;
-    self.input.text = self.mode.selectedSegmentIndex == 0 ? @"80 E2 91 00 06 BF 3E 03 5C 01 5A"
-                                                          : @"BF 3E 03 5C 01 5A";
+    // Get EID may return 61xx before its payload. Use the mode that collects it.
+    self.mode.selectedSegmentIndex = 1;
+    [self modeChanged];
+    self.input.text = @"BF 3E 03 5C 01 5A";
 }
 - (void)endEditing {
     [self.view endEditing:YES];

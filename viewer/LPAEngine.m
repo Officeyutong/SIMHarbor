@@ -970,11 +970,10 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
                 @"rx" : SHHex(response),
                 @"sw" : [NSString stringWithFormat:@"%04X", sw]
             }];
-            if (stop && sw != 0x9000) {
+            const char *statusIssue = SHRawStatusIssue((uint16_t)sw);
+            if (stop && statusIssue) {
                 if (error)
-                    *error = SHError(
-                        20,
-                        @"Stopped after a non-9000 status. Check the response before continuing.");
+                    *error = SHError(20, @(statusIssue));
                 break;
             }
         }

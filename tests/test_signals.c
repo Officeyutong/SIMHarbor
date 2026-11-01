@@ -127,6 +127,12 @@ static void codecs(void) {
     assert(SHBindChannel(0x0c, 4) == 0x60);
     assert(SHBindChannel(0, 20) < 0);
     assert(SHBindChannel(0x81, 1) < 0);
+    assert(!SHRawStatusIssue(0x9000));
+    assert(strstr(SHRawStatusIssue(0x6115), "GET RESPONSE"));
+    assert(strstr(SHRawStatusIssue(0x6100), "ES10 DER"));
+    assert(strstr(SHRawStatusIssue(0x6c15), "Le"));
+    assert(strstr(SHRawStatusIssue(0x6c00), "does not retry"));
+    assert(strstr(SHRawStatusIssue(0x6a82), "non-9000"));
     uint8_t eid[] = {0xbf, 0x3e, 3, 0x5c, 1, 0x5a};
     assert(!SHValidateDER(eid, sizeof eid, 120 * 256));
     assert(SHValidateDER(eid, sizeof eid, 5));
