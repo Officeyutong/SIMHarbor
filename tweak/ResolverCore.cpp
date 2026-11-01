@@ -16,24 +16,31 @@
 #include <set>
 
 namespace shresolve {
+// Check whether the entire byte span fits in one mapped range. Subtraction-based
+// bounds checks avoid overflowing the requested end address.
 bool Image::contains(Address a, size_t n) const {
     for (auto &r : ranges)
         if (a >= r.address && n <= r.size && a - r.address <= r.size - n)
             return true;
     return false;
 }
+// Accept only four-byte-aligned AArch64 instruction addresses inside a code range.
 bool Image::code(Address a) const {
     for (auto &r : ranges)
         if (r.code && a >= r.address && a - r.address < r.size)
             return a % 4 == 0;
     return false;
 }
+// Read one 64-bit pointer through the image reader, then apply pointer cleanup.
+// Return zero on read failure; range validation is left to the reader/caller.
 Address Image::pointer(Address a) const {
     Address v = 0;
     if (!read(a, &v, 8))
         return 0;
     return clean(v);
 }
+// Read a bounded, NUL-terminated printable ASCII string from mapped image bytes.
+// Return an empty string for unreadable, non-ASCII or unterminated input (and for "").
 std::string Image::string(Address a, size_t max) const {
     std::string s;
     for (size_t i = 0; i < max; i++) {
@@ -48,6 +55,8 @@ std::string Image::string(Address a, size_t max) const {
     }
     return {};
 }
+// Record a discovered address/offset and its evidence for diagnostics. A zero value
+// records a missing-result error instead of installing an unusable plan entry.
 void Plan::set(const std::string &k, Address v, const std::string &s) {
     if (!v) {
         errors.push_back(k + ": missing");
@@ -64,6 +73,8 @@ struct D {
 class Decoder {
   public:
     csh cs = 0;
+    // Initialize an ARM64 Capstone handle with operand details enabled. Allocation
+    // callbacks and optional devkit architecture registration are configured once.
     Decoder() {
         // Frida's devkit requires explicit architecture registration and memory setup.
         // Configure only Capstone; no Gum/GLib initialization or process-wide cache.
@@ -77,10 +88,14 @@ class Decoder {
         if (configured && cs_open(CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN, &cs) == CS_ERR_OK)
             cs_option(cs, CS_OPT_DETAIL, CS_OPT_ON);
     }
+    // Release this decoder's Capstone handle if initialization opened one.
     ~Decoder() {
         if (cs)
             cs_close(&cs);
     }
+    // Copy and decode a byte window, retaining only instruction IDs, PCs and ARM64
+    // details. Return an empty result on read/allocation failure; decoding may stop
+    // before the end of the window when Capstone cannot decode the next instruction.
     std::vector<D> bytes(const Image &m, Address a, size_t n) {
         std::vector<uint8_t> b(n);
         if (!n || !m.read(a, b.data(), n))
@@ -100,6 +115,8 @@ class Decoder {
         cs_free(instruction, 1);
         return out;
     }
+    // Decode from a code address up to the next sorted function boundary, with a
+    // 64 KiB limit. Missing boundaries or invalid code addresses yield no instructions.
     std::vector<D> function(const Image &m, Address a) {
         if (!m.code(a))
             return {};
@@ -108,6 +125,8 @@ class Decoder {
             return {};
         return bytes(m, a, *it - a);
     }
+    // Normalize supported W/X register aliases to indices 0..31 (SP is 31).
+    // Return -1 for registers outside this lightweight tracker's model.
     int reg(unsigned r) {
         if (r == ARM64_REG_SP || r == ARM64_REG_WSP)
             return 31;
@@ -122,11 +141,17 @@ class Decoder {
         return -1;
     }
 };
+// Identify an explicit register operand before accessing its register identifier.
 static bool regop(const cs_arm64_op &o) { return o.type == ARM64_OP_REG; }
+// Identify an immediate operand before interpreting its integer value.
 static bool immop(const cs_arm64_op &o) { return o.type == ARM64_OP_IMM; }
+// Accept base-plus-displacement memory operands without a register index, matching
+// the field-access patterns understood by the trackers below.
 static bool memop(const cs_arm64_op &o) {
     return o.type == ARM64_OP_MEM && o.mem.index == ARM64_REG_INVALID;
 }
+// Infer the modeled access width from byte/halfword opcodes or a W/X register.
+// For LDP this describes one loaded element, not the combined pair width.
 static int width(const D &i, unsigned reg) {
     if (i.id == ARM64_INS_LDRB || i.id == ARM64_INS_STRB || i.id == ARM64_INS_STURB)
         return 1;
@@ -136,8 +161,11 @@ static int width(const D &i, unsigned reg) {
         return 4;
     return 8;
 }
+// Apply Capstone's shift amount to an immediate used by modeled ADD instructions.
 static Address shifted(const cs_arm64_op &o) { return (Address)o.imm << o.shift.value; }
-// Track only straight-line PC-relative addresses. Caller-saved values are killed at BL.
+// Collect addresses modeled by ADR/ADRP, immediate ADD and register MOV in linear
+// instruction order. Clear caller-saved values at BL and modeled load destinations;
+// this limited tracker does not prove references across control-flow paths.
 static std::vector<Address> refs(Decoder &d, const std::vector<D> &ins) {
     std::array<Address, 32> v{};
     std::vector<Address> out;
@@ -171,6 +199,8 @@ static std::vector<Address> refs(Decoder &d, const std::vector<D> &ins) {
     }
     return out;
 }
+// Try to resolve a 32-byte ADR[P]/ADD/LDR indirect branch stub, including PAC branch
+// forms. Return the original target if no tracked branch destination is recovered.
 static Address stub(Decoder &d, const Image &m, Address target) {
     if (!m.code(target))
         return target;
@@ -201,6 +231,9 @@ struct Use {
     unsigned id;
     Address pc;
 };
+// Track MOV aliases of incoming arguments x0..x7 and record supported loads from
+// them as argument/offset/width evidence. Clear modeled overwritten registers and
+// caller-saved origins at BL; this is a linear heuristic, not control-flow analysis.
 static std::vector<Use> loads(Decoder &d, const std::vector<D> &ins) {
     std::array<int, 32> origin;
     origin.fill(-1);
@@ -240,6 +273,8 @@ static std::vector<Use> loads(Decoder &d, const std::vector<D> &ins) {
     }
     return out;
 }
+// Collapse duplicate evidence and require exactly one distinct candidate. Record
+// an ambiguity/missing-candidate error and return zero otherwise.
 static Address only(Plan &p, const std::vector<Address> &v, const std::string &label) {
     std::set<Address> s(v.begin(), v.end());
     if (s.size() != 1) {
@@ -253,6 +288,9 @@ struct Table {
     std::string name;
     std::vector<Address> entries;
 };
+// Find selected controller/APDU-closure RTTI records in non-code ranges, then
+// recover primary vtable address points with zero offset-to-top and 4..96 contiguous
+// executable entries. Return only the tables relevant to this transport adapter.
 static std::vector<Table> tables(const Image &m) {
     std::map<Address, std::string> types;
     for (auto &r : m.ranges) {
@@ -296,10 +334,16 @@ static std::vector<Table> tables(const Image &m) {
     }
     return out;
 }
+// Test whether the modeled PC-relative references in a function include target.
+// A false result also covers functions that cannot be decoded.
 static bool hasref(Decoder &d, const Image &m, Address fn, Address target) {
     auto r = refs(d, d.function(m, fn));
     return std::find(r.begin(), r.end(), target) != r.end();
 }
+// Build a static transport plan from driver symbols, callback load patterns, RTTI
+// and CommCenter instruction references. Require unique candidates and compatible
+// driver signatures; failures return a partial plan with errors and complete=false.
+// This does not install hooks, invoke private functions or infer live-object fields.
 Plan resolve(const Image &cc, const Image &dr, const std::vector<Symbol> &symbols, Address ready) {
     Plan p;
     Decoder d;
@@ -308,6 +352,8 @@ Plan resolve(const Image &cc, const Image &dr, const std::vector<Symbol> &symbol
         return p;
     }
     std::vector<Address> start, command, close, callbacks;
+    // Normalize demangled signature whitespace before comparing adapter ABI shapes.
+    // The predicate removes only spaces, tabs and newlines.
     auto signature = [](std::string name) {
         name.erase(
             std::remove_if(name.begin(), name.end(),
@@ -364,6 +410,8 @@ Plan resolve(const Image &cc, const Image &dr, const std::vector<Symbol> &symbol
     if (!p.errors.empty())
         return p;
     p.signaturesValidated = true;
+    // Classify command callbacks by response-vector loads, slot captures and QMI
+    // error/close behavior before deriving their captured-field offsets.
     std::vector<Address> encoders, responses, qmis;
     std::map<Address, std::vector<Use>> uses;
     for (Address f : callbacks) {
@@ -436,6 +484,7 @@ Plan resolve(const Image &cc, const Image &dr, const std::vector<Symbol> &symbol
     }
     if (!p.errors.empty())
         return p;
+    // Connect controller and closure RTTI to completion, sender and worker code.
     auto ts = tables(cc);
     std::vector<Address> controller, voidTasks, boolTasks;
     for (auto &t : ts) {
@@ -454,6 +503,7 @@ Plan resolve(const Image &cc, const Image &dr, const std::vector<Symbol> &symbol
     if (!p.errors.empty())
         return p;
     std::vector<Address> complete;
+    // Select the previously validated completion table by its address point.
     auto bt = std::find_if(ts.begin(), ts.end(), [&](auto &t) { return t.address == boolean; });
     for (Address f : bt->entries)
         for (auto &i : d.function(cc, f))
@@ -465,6 +515,7 @@ Plan resolve(const Image &cc, const Image &dr, const std::vector<Symbol> &symbol
           "APDU bool closure RTTI + bool-reference invoke instruction");
     if (!p.errors.empty())
         return p;
+    // Select the unique controller table whose methods can reference the APDU task.
     auto ct = std::find_if(ts.begin(), ts.end(),
                            [&](auto &t) { return t.address == p.values["controllerVtable"]; });
     std::vector<Address> senders, workers;
@@ -486,6 +537,7 @@ Plan resolve(const Image &cc, const Image &dr, const std::vector<Symbol> &symbol
     p.set("isReady", ready, "exported subscriber::isSimReady");
     if (!p.errors.empty())
         return p;
+    // The call immediately preceding isSimReady supplies the SimInfo state getter.
     auto worker = d.function(cc, p.values["worker"]);
     std::vector<Address> states;
     Address previous = 0;
@@ -500,6 +552,8 @@ Plan resolve(const Image &cc, const Image &dr, const std::vector<Symbol> &symbol
           "worker call immediately preceding exported isSimReady");
     if (!p.errors.empty())
         return p;
+    // Recognize vector-bound loads followed by a shared-pointer pointee load and
+    // logical-slot word load, then require unique member displacements.
     std::vector<Address> vectors, logical;
     for (size_t i = 0; i < worker.size(); i++) {
         auto &a = worker[i].a;
@@ -530,6 +584,10 @@ Plan resolve(const Image &cc, const Image &dr, const std::vector<Symbol> &symbol
     p.complete = p.errors.empty();
     return p;
 }
+// Search readable registry pointer chains for one object with the resolved vtable.
+// Inspect 32 root words and eight words per node, capped at 512 steps per chain and
+// 2,048 visited nodes overall. Clean pointers without invoking candidate objects;
+// return zero for an invalid root, failed root read, no match or ambiguous matches.
 Address findController(Address root, Address vtable,
                        const std::function<bool(Address, void *, size_t)> &read,
                        const std::function<Address(Address)> &clean) {
