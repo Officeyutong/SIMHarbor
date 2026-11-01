@@ -24,7 +24,10 @@ static shresolve::Plan resolved;
 static uintptr_t location(const char *key) { return resolved.values.at(key); }
 static std::atomic<void *> registryMap{nullptr};
 static std::atomic<void *> iface{nullptr}, driver{nullptr};
-static std::atomic<int> phase{0}, channel{-1}; // idle/opening/open/tx/closing
+// Keep these explicit values stable: status/slots expose them through the IPC protocol.
+enum class Phase : int { Idle = 0, Opening = 1, Open = 2, Transmitting = 3, Closing = 4 };
+static std::atomic<Phase> phase{Phase::Idle};
+static std::atomic<int> channel{-1};
 static Vec *responseVector;
 static Fn retained;
 static Vec pending, raw;
@@ -49,7 +52,7 @@ static void signalDone() { dispatch_semaphore_signal(event); }
 // driver, channel and response-vector reference. The vector remains owned by the
 // original session; always forward the command to preserve the driver's workflow.
 static void commandHook(void *self, int s, uint8_t c, uint8_t ins, Vec &v, const Fn &cb) {
-    if (phase == 1 && s == slot) {
+    if (phase.load() == Phase::Opening && s == slot) {
         driver = self;
         channel = c;
         responseVector = &v;
@@ -61,7 +64,8 @@ static void commandHook(void *self, int s, uint8_t c, uint8_t ins, Vec &v, const
 // channel, not the hardware slot; pending is consumed under the shared buffer mutex.
 static void encodeHook(void *b, Vec &v) {
     encodeOrig(b, v);
-    if (phase == 3 && *((uint8_t *)b + location("encoderChannel")) == channel) {
+    if (phase.load() == Phase::Transmitting &&
+        *((uint8_t *)b + location("encoderChannel")) == channel) {
         std::lock_guard<std::mutex> g(mu);
         if (!pending.empty()) {
             v = pending;
@@ -72,7 +76,8 @@ static void encodeHook(void *b, Vec &v) {
 // Capture the complete card response, including SW1/SW2, only for the transmitting
 // session's hardware slot and channel. Preserve normal driver processing afterward.
 static void responseHook(void *b, const Vec &v) {
-    if (phase == 3 && *(int *)((char *)b + location("responseSlot")) == slot &&
+    if (phase.load() == Phase::Transmitting &&
+        *(int *)((char *)b + location("responseSlot")) == slot &&
         *((uint8_t *)b + location("responseChannel")) == channel) {
         std::lock_guard<std::mutex> g(mu);
         raw = v;
@@ -82,7 +87,7 @@ static void responseHook(void *b, const Vec &v) {
 // Capture the driver's transport-result field separately from the card's status word.
 // The current guard is the transmitting phase only, without slot/channel filtering.
 static void qmiHook(void *b, void *r) {
-    if (phase == 3)
+    if (phase.load() == Phase::Transmitting)
         qmiError = *(int *)((char *)r + location("qmiError"));
     qmiOrig(b, r);
 }
@@ -90,11 +95,12 @@ static void qmiHook(void *b, void *r) {
 // its completion callback so subsequent APDUs can reuse the channel. Report an open
 // session to the waiter; unrelated closes and explicit closing pass through.
 static void closeHook(void *self, int s, uint8_t c, bool ok, const Fn &cb) {
-    int p = phase;
-    if ((p == 1 || p == 3) && self == driver && s == slot && c == channel) {
+    const Phase p = phase.load();
+    if ((p == Phase::Opening || p == Phase::Transmitting) && self == driver && s == slot &&
+        c == channel) {
         if (!retained)
             retained = cb;
-        phase = 2;
+        phase.store(Phase::Open);
         signalDone();
         return;
     }
@@ -105,11 +111,11 @@ static void closeHook(void *self, int s, uint8_t c, bool ok, const Fn &cb) {
 // retained channel. Direct sessions use their own completion callback below.
 static void completionHook(void *self, bool *ok) {
     completionOrig(self, ok);
-    if (phase == 4) {
-        phase = 0;
+    if (phase.load() == Phase::Closing) {
+        phase.store(Phase::Idle);
         signalDone();
-    } else if (phase == 1) {
-        phase = 0;
+    } else if (phase.load() == Phase::Opening) {
+        phase.store(Phase::Idle);
         signalDone();
     }
 }
@@ -161,11 +167,11 @@ static bool awaitDone() {
 // Keep the retained callback and any owned response vector until completion is
 // observed; a busy state or timeout returns failure without claiming session release.
 static bool closeSession() {
-    if (phase == 0)
+    if (phase.load() == Phase::Idle)
         return true;
-    if (phase != 2 || !retained)
+    if (phase.load() != Phase::Open || !retained)
         return false;
-    phase = 4;
+    phase.store(Phase::Closing);
     closeOrig(driver, slot, channel, true, retained);
     bool ok = awaitDone();
     if (ok) {
@@ -258,7 +264,7 @@ static NSDictionary *handle(NSDictionary *q) {
         return slots
                    ? @{@"ok" : @YES,
                        @"slots" : slots,
-                       @"phase" : @(phase.load())}
+                       @"phase" : @(static_cast<int>(phase.load()))}
                    : fail(@"Card service is initializing. Try again later.");
     }
     if ([op isEqual:@"status"]) {
@@ -275,7 +281,7 @@ static NSDictionary *handle(NSDictionary *q) {
             @"ok" : @YES,
             @"compatible" : @(compatible.load()),
             @"ready" : @(available),
-            @"phase" : @(phase.load()),
+            @"phase" : @(static_cast<int>(phase.load())),
             @"logicalSlot" : @(requested),
             @"hardwareSlot" : @(hw),
             @"simReady" : @(simReady),
@@ -290,7 +296,7 @@ static NSDictionary *handle(NSDictionary *q) {
                    ? @{@"ok" : @YES}
                    : fail(@"Channel close did not complete. Do not repeat the operation.");
     if ([op isEqual:@"open"]) {
-        if (phase != 0)
+        if (phase.load() != Phase::Idle)
             return fail(@"The card is busy.");
         if (!ensureInterface())
             return fail(@"Card service is initializing. Try again later.");
@@ -325,27 +331,27 @@ static NSDictionary *handle(NSDictionary *q) {
             retained = [](bool) {
                 if (!directSession)
                     return;
-                if (phase == 3) {
-                    phase = 2;
+                if (phase.load() == Phase::Transmitting) {
+                    phase.store(Phase::Open);
                     signalDone();
-                } else if (phase == 1 || phase == 4) {
-                    phase = 0;
+                } else if (phase.load() == Phase::Opening || phase.load() == Phase::Closing) {
+                    phase.store(Phase::Idle);
                     signalDone();
                 }
             };
             Vec aid((uint8_t *)d.bytes, (uint8_t *)d.bytes + d.length);
             using Start = void (*)(void *, int, const Vec &, void (^)(int, uint8_t), const Fn &);
-            phase = 1;
+            phase.store(Phase::Opening);
             // Record the channel allocated by the direct-open callback and wake open.
             void (^opened)(int, uint8_t) = ^(int, uint8_t c) {
                 channel = c;
-                phase = 2;
+                phase.store(Phase::Open);
                 signalDone();
             };
             signedFn<Start>(location("driverStart"))(driver, hardware, aid, opened, retained);
             if (!awaitDone())
                 return fail(@"Management channel open timed out.");
-            if (phase != 2) {
+            if (phase.load() != Phase::Open) {
                 retained = {};
                 directResponse.reset();
                 directSession = false;
@@ -367,11 +373,11 @@ static NSDictionary *handle(NSDictionary *q) {
         Fn cb = [](bool) {};
         using Sender =
             void (*)(void *, int, std::shared_ptr<Vec>, uint8_t, std::shared_ptr<Vec>, Fn);
-        phase = 1;
+        phase.store(Phase::Opening);
         signedFn<Sender>(location("sender"))(iface, logicalSlot, aid, 0xc0, out, cb);
         if (!awaitDone())
             return fail(@"Channel open timed out. Wait for service recovery.");
-        if (phase != 2)
+        if (phase.load() != Phase::Open)
             return fail(@"Unable to open ISD-R. Check that the card supports eUICC.");
         return @{
             @"ok" : @YES,
@@ -381,7 +387,7 @@ static NSDictionary *handle(NSDictionary *q) {
         };
     }
     if ([op isEqual:@"transmit"]) {
-        if (phase != 2 || !retained)
+        if (phase.load() != Phase::Open || !retained)
             return fail(@"The channel is not open.");
         NSData *d = SHUnhex(q[@"hex"]);
         if (d.length < 4 || d.length > 261)
@@ -392,7 +398,7 @@ static NSDictionary *handle(NSDictionary *q) {
             raw.clear();
         }
         qmiError = 0;
-        phase = 3;
+        phase.store(Phase::Transmitting);
         // Trigger the existing command path with 0xc0; encodeHook replaces the final
         // outgoing bytes with pending, so the actual APDU can have another INS.
         commandOrig(driver, slot, channel, 0xc0, *responseVector, retained);
@@ -452,10 +458,10 @@ static void networkLoop() {
                 }
             }
             close(fd);
-            if (phase == 2)
+            if (phase.load() == Phase::Open)
                 closeSession();
-            else if (phase == 1 || phase == 3) {
-                if (awaitDone() && phase == 2)
+            else if (phase.load() == Phase::Opening || phase.load() == Phase::Transmitting) {
+                if (awaitDone() && phase.load() == Phase::Open)
                     closeSession();
             }
             sleep(2);

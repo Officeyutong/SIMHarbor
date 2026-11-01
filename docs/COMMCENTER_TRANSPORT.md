@@ -112,7 +112,7 @@ stateDiagram-v2
     Closing --> Idle: close completes
 ```
 
-The numeric phases are idle `0`, opening `1`, open `2`, transmitting `3`, closing `4`. This diagram describes completed transitions; a timeout is not proof that the state returned to idle or that a card command did not execute. The bridge does not automatically replay a timed-out write. Socket disconnects trigger cleanup attempts as described in [IPC recovery](IPC.md#state-timeouts-and-recovery).
+Internally, `std::atomic<Phase>` uses `enum class Phase : int`: `Idle = 0`, `Opening = 1`, `Open = 2`, `Transmitting = 3`, `Closing = 4`. Status/slot replies explicitly convert the enum to an integer, preserving those IPC values. This diagram describes completed transitions; a timeout is not proof that the state returned to idle or that a card command did not execute. The bridge does not automatically replay a timed-out write. Socket disconnects trigger cleanup attempts as described in [IPC recovery](IPC.md#state-timeouts-and-recovery).
 
 ## Implementation limits
 
