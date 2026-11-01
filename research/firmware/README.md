@@ -2,7 +2,7 @@
 
 This host-side research tooling indexes **stable iOS 14.0 through 26.0.1**, including rapid security responses, across every recorded iPhone product identifier. Version bounds are numeric; there is no release-date cutoff. Beta/RC reports may be collected as supplementary evidence, but are not silently added to the stable device/build target set. This does not impose a version/device gate on the app.
 
-The default workflow downloads metadata and existing Markdown diffs, **not IPSW/OTA binaries**. No command in these scripts downloads a firmware archive. Keep datasets, Apple binaries and analysis output outside the public repository.
+The metadata workflow downloads metadata and existing Markdown diffs. The explicit acquisition and sweep commands below download firmware archives only from a saved, checksum-pinned plan. Keep datasets, Apple binaries and analysis output outside the public repository.
 
 ## Prepare source metadata
 
@@ -52,7 +52,7 @@ Only after identifying gaps should individual archives/images be acquired, targe
 
 ## File-model resolver replay
 
-`offline_resolver.py` reconstructs readable segments from thin Mach-O files and decodes ARM64e chained fixups (formats 1, 9 and 12) into a separate memory model. It binds `isSimReady` to its extracted export; other imports use out-of-image placeholders. It reconstructs block labels with `c++filt` and normalizes the block-pointer qualifier spelling to the established CoreSymbolication fixture. Unsupported pointer/import encodings fail explicitly. This is a bounded analysis adapter, not a complete dynamic linker or an emulator.
+`offline_resolver.py` reconstructs readable segments from thin Mach-O files and decodes ARM64e chained fixups (ARM64e formats 1, 9 and 12; plain 64-bit formats 2 and 6) into a separate memory model. It binds `isSimReady` to its extracted export; other imports use out-of-image placeholders. It reconstructs block labels with `c++filt` and normalizes the block-pointer qualifier spelling to the established CoreSymbolication fixture. Unsupported pointer/import encodings fail explicitly. This is a bounded analysis adapter, not a complete dynamic linker or an emulator.
 
 ```sh
 clang++-22 -std=c++17 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer \
@@ -66,13 +66,13 @@ python3 research/firmware/test_offline_resolver.py
 
 The native runner uses the project's actual ResolverCore and emits a partial or complete plan. An unresolved plan is an analysis result, while malformed model input or a crashing runner is an error. The established 17.2.1 file sample reproduces all 16 known fixture discoveries using module-relative addresses/field offsets. This calibration does not establish that every firmware encoding is supported. No target instructions, Registry getters, hooks or live-object probes execute in the host harness.
 
-The iPhone 12 mini 16.5.1 (20F75) sample reproduces a static failure at SimInfo-container discovery: its worker walks inline objects (observed stride `0x138`, logical field `+0x4`), while the current rule/reader expect shared-pointer entries. Do not fix this by substituting one vector offset: entry representation and traversal must also be inferred and validated. This is a known analysis finding, not a runtime fix or a device-tested support claim.
+The iPhone 12 mini 16.5.1 (20F75) sample originally exposed an inline-container discovery gap. Version 1.3.22 resolves its observed stride `0x138` and logical field `+0x4` through traversal analysis. This remains static evidence, not a device-tested support claim.
 
 # 固件覆盖研究
 
 工具在主机侧索引 **iOS 14.0 至 26.0.1 的正式版及快速安全响应版本**，覆盖元数据中全部适用的 iPhone 设备标识。边界按版本号比较，不设发布日期上限。Beta／RC 差异报告可作为补充证据，但不会混入正式版设备／Build 目标集合，也不会改变 App 的运行时兼容策略。
 
-默认仅下载元数据和现成 Markdown 报告，**不会下载 IPSW／OTA 固件**。这两个采集脚本均没有固件下载步骤。请将数据集、Apple 二进制和分析产物放在公开仓库外。
+元数据工作流仅下载元数据和现成 Markdown 报告；后文明确的按需下载和全版本批处理命令会按保存的清单下载固件。请将数据集、Apple 二进制和分析产物放在公开仓库外。
 
 按照上面的目录要求准备固定提交的 AppleDB，然后运行四条命令。`catalog.sqlite` 分别保存设备／Build、按 URL 去重的资源及各来源的交付限制；保留 OTA 前置 Build、板型和链接状态。没有来源的组合仍然是缺口，不能算已验证。重复运行会复用缓存；更新来源需显式刷新。
 
@@ -87,3 +87,22 @@ The iPhone 12 mini 16.5.1 (20F75) sample reproduces a static failure at SimInfo-
 The six collected samples now resolve with inferred container descriptors: the 16.5.1 sample uses inline entries; 17.2.1, 17.6, 18.0, 18.6 and 26.0.1 use indirect entries. No OS/device selector supplies those layouts. The newer three samples require the native open-success continuation path, and 26.0.1 additionally requires one level of outlined-helper evidence. The continuation path currently requires a ready SIM. Static success does not test native block lifetimes or establish working profile management on those devices. See the bilingual [patchfinder documentation](../../docs/PATCHFINDER.md).
 
 With Clang 22 and Capstone 5 headers/library installed, run `python3 tests/check_sim_container.py` from the repository root for synthetic traversal tests without any firmware captures. `tests/check_resolver.py` also runs them after private fixture replay.
+
+## Complete major-version sweep
+
+`sweep.py --plan` snapshots the catalog and selects every IPSW for the requested major version. Targets without an IPSW use a full OTA when available; RSR targets select one delivery. Targets without a suitable published source remain explicit gaps. Beta/RC are excluded. Equivalent archive URLs are catalog-deduplicated; no device family is assumed equivalent to another.
+
+```sh
+python3 research/firmware/sweep.py "$CORPUS" --root "$CORPUS/ios16-sweep" --plan --major 16
+python3 research/firmware/sweep.py "$CORPUS" --root "$CORPUS/ios16-sweep" --run --workers 4
+python3 research/firmware/sweep_report.py "$CORPUS/ios16-sweep" --watch
+python3 research/firmware/test_sweep.py
+```
+
+Do not regenerate an active plan. `--run` resumes from durable receipts and skips analyzed/deleted entries. It downloads at most four files per batch using aria2, keeps 100 GiB free, and pauses when retained failed inputs exceed 80 GiB. Each verified IPSW is matched to every applicable customer-erase board identity. Analysis can be shared only when the identity uses the same OS components and cache architecture. Original ARM64 and ARM64e groups remain separate. The extractor accepts explicit board/architecture and output overrides for this purpose.
+
+Keep target Mach-O files, manifests, module/function hashes, disassemblies and resolver results. Temporary replay segments are reproducible and removed after replay. After extraction and static inspection complete, remove that input archive, including a reused prior hard link; preserve failed/incomplete extraction inputs for investigation. An unresolved static plan is a recorded finding, never a compatibility success. `reports/PROGRESS.md` and `summary.json` distinguish analyzed targets, static-resolved targets, failed downloads, unsupported OTA reconstruction and missing sources. Module sets are grouped only by measured SHA256; code hash changes do not alone prove semantic changes. OTA/RSR packages requiring delta reconstruction must not be treated as standalone full images.
+
+### 全版本批处理
+
+`sweep.py` 按固定目录快照列出指定大版本的所有正式版／快速安全响应目标，下载全部不同 IPSW；没有 IPSW 的目标优先使用完整 OTA，没有公开来源的组合单列缺口。四文件 aria2 并行，每批分析完成后删除安装包，保留二进制、清单、反汇编和解析结果。按实际 BuildManifest 中各板型的 OS 路径及缓存架构建立对应关系，不把抽样设备外推至整个系列。ARM64 与 ARM64e 分别分析。解析失败会记录，不能冒充兼容通过；需要补丁重建的 OTA／RSR 也不能当成完整镜像。进度由 `sweep_report.py --watch` 持续写入 `reports/PROGRESS.md` 和 `summary.json`。已完成条目支持断点续跑，失败的提取输入暂保留，达到磁盘保留阈值时暂停。

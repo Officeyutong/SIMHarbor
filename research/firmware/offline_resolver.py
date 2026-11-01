@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Model file rebases/imports and replay static ResolverCore, without executing ARM code.
 
-Chained pointer layout reference:
+Supports ARM64e and plain 64-bit chained pointers. Layout reference:
 https://github.com/apple-oss-distributions/dyld/blob/main/include/mach-o/fixup-chains.h
 Unresolved imports get out-of-image placeholders. Only isSimReady is bound to a
 real exported address; neither these bindings nor PAC stripping model a full dyld.
@@ -79,6 +79,23 @@ def arm64e_pointer(raw, fmt, base):
     return next_delta, target, None, 0
 
 
+def chained_pointer(raw, fmt, base):
+    """Decode dyld's plain 64-bit chains (stride four) or ARM64e chains."""
+    if fmt not in (2, 6):
+        return arm64e_pointer(raw, fmt, base)
+    delta = ((raw >> 51) & 0xFFF) * 4
+    if raw >> 63:
+        if (raw >> 32) & 0x7FFFF:
+            raise ValueError("Nonzero reserved bits in 64-bit bind")
+        return delta, None, raw & 0xFFFFFF, (raw >> 24) & 0xFF
+    if (raw >> 44) & 0x7F:
+        raise ValueError("Nonzero reserved bits in 64-bit rebase")
+    target = (raw & ((1 << 36) - 1)) | (((raw >> 36) & 0xFF) << 56)
+    if fmt == 6:
+        target += base
+    return delta, target, None, 0
+
+
 def patch_chains(data, toc, memory, base, ready):
     command = next((x for x in toc["loads"] if x.get("load_cmd") == "LC_DYLD_CHAINED_FIXUPS"), None)
     if not command:
@@ -109,7 +126,7 @@ def patch_chains(data, toc, memory, base, ready):
         info = start + relative
         length, page, fmt, segoff, _, pages = struct.unpack_from("<IHHQIH", blob, info)
         if (
-            fmt not in (1, 9, 12)
+            fmt not in (1, 2, 6, 9, 12)
             or page not in (4096, 16384)
             or info + length > len(blob)
             or length < 22 + pages * 2
@@ -137,8 +154,12 @@ def patch_chains(data, toc, memory, base, ready):
                     raise ValueError("Fixup points outside modeled segment/page")
                 off = address - region["address"]
                 raw = struct.unpack_from("<Q", region["data"], off)[0]
-                delta, target, ordinal, addend = arm64e_pointer(raw, fmt, base)
+                delta, target, ordinal, addend = chained_pointer(raw, fmt, base)
+                if delta and delta < 8:
+                    raise ValueError("Overlapping chained pointer words")
                 if ordinal is not None:
+                    if ordinal >= len(entries):
+                        raise ValueError("Bind ordinal outside import table")
                     name, extra = entries[ordinal]
                     target = (
                         (
@@ -173,7 +194,7 @@ def prepare(folder, output):
         "ready": ready,
         "regions": [],
         "symbols": [],
-        "model": "Decoded ARM64e chained fixups; isSimReady bound; other imports are non-executable placeholders. Does not model live objects, Registry capture or hooking.",
+        "model": "Decoded 64-bit/ARM64e chained fixups; isSimReady bound; other imports are non-executable placeholders. Does not model live objects, Registry capture or hooking.",
     }
     all_memory = []
     for key, name in [("cc", "CommCenter"), ("driver", "libCommCenterMCommandDrivers.dylib")]:

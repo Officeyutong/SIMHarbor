@@ -52,6 +52,55 @@ def sha256(path):
     return value.hexdigest()
 
 
+def download_one(a, archive, logs):
+    """Resume and verify one explicit asset; callers own scheduling and receipts."""
+    path = archive / (a["asset"] + (".zip" if a.get("kind") == "ota" else ".ipsw"))
+    if path.exists() and path.stat().st_size == a["size"] and sha256(path) == a["sha256"]:
+        return {
+            "status": "verified",
+            "path": str(path.resolve()),
+            "bytes": a["size"],
+            "cached": True,
+        }
+    command = [
+        "aria2c",
+        "--file-allocation=none",
+        "--allow-overwrite=false",
+        "--auto-file-renaming=false",
+        "--continue=true",
+        "--check-integrity=true",
+        "--max-connection-per-server=8",
+        "--split=8",
+        "--min-split-size=4M",
+        "--max-tries=5",
+        "--retry-wait=5",
+        "--timeout=30",
+        "--summary-interval=0",
+        "--console-log-level=warn",
+        "--download-result=hide",
+        "--checksum=sha-256=" + a["sha256"],
+        "--dir=" + str(archive.resolve()),
+        "--out=" + path.name,
+        a["url"],
+    ]
+    with (logs / ("download-" + a["asset"] + ".log")).open("a") as log:
+        result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT)
+    if result.returncode or not path.exists() or path.stat().st_size != a["size"]:
+        return {
+            "status": "failed",
+            "exit_code": result.returncode,
+            "bytes": path.stat().st_size if path.exists() else 0,
+        }
+    if sha256(path) != a["sha256"]:
+        return {"status": "checksum_failed", "bytes": path.stat().st_size}
+    return {
+        "status": "verified",
+        "path": str(path.resolve()),
+        "bytes": a["size"],
+        "cached": False,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", type=Path)
@@ -87,55 +136,8 @@ def main():
         "results": previous.get("results", {}),
     }
 
-    def one(a):
-        path = archive / (a["asset"] + ".ipsw")
-        if path.exists() and path.stat().st_size == a["size"] and sha256(path) == a["sha256"]:
-            return {
-                "status": "verified",
-                "path": str(path.resolve()),
-                "bytes": a["size"],
-                "cached": True,
-            }
-        command = [
-            "aria2c",
-            "--file-allocation=none",
-            "--allow-overwrite=false",
-            "--auto-file-renaming=false",
-            "--continue=true",
-            "--check-integrity=true",
-            "--max-connection-per-server=8",
-            "--split=8",
-            "--min-split-size=4M",
-            "--max-tries=5",
-            "--retry-wait=5",
-            "--timeout=30",
-            "--summary-interval=0",
-            "--console-log-level=warn",
-            "--download-result=hide",
-            "--checksum=sha-256=" + a["sha256"],
-            "--dir=" + str(archive.resolve()),
-            "--out=" + path.name,
-            a["url"],
-        ]
-        with (logs / ("download-" + a["asset"] + ".log")).open("a") as log:
-            result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT)
-        if result.returncode or not path.exists() or path.stat().st_size != a["size"]:
-            return {
-                "status": "failed",
-                "exit_code": result.returncode,
-                "bytes": path.stat().st_size if path.exists() else 0,
-            }
-        if sha256(path) != a["sha256"]:
-            return {"status": "checksum_failed", "bytes": path.stat().st_size}
-        return {
-            "status": "verified",
-            "path": str(path.resolve()),
-            "bytes": a["size"],
-            "cached": False,
-        }
-
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
-        jobs = {pool.submit(one, a): a for a in assets}
+        jobs = {pool.submit(download_one, a, archive, logs): a for a in assets}
         for future in concurrent.futures.as_completed(jobs):
             a = jobs[future]
             try:

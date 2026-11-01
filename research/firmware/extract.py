@@ -36,7 +36,7 @@ def select_identity(manifest, boards):
     return candidates[0]
 
 
-def extract(root, plan, asset_id):
+def extract(root, plan, asset_id, *, board=None, output=None, arch=None):
     asset = next(a for a in plan["assets"] if a["asset"] == asset_id)
     status = json.loads((root / "reports/targeted-download-status.json").read_text())[
         "results"
@@ -48,7 +48,7 @@ def extract(root, plan, asset_id):
         raise ValueError("Verified archive was changed")
     ipsw = (root / "tools/ipsw").resolve()
     apfs = (root / "tools/apfs-fuse-build/apfs-fuse").resolve()
-    output = root / "artifacts" / asset_id
+    output = output or root / "artifacts" / asset_id
     output.mkdir(parents=True, exist_ok=True)
     work_parent = root / "work"
     work_parent.mkdir(exist_ok=True)
@@ -104,7 +104,9 @@ def extract(root, plan, asset_id):
             boards = (json.loads(row[0]).get("board") or []) if row else []
             if isinstance(boards, str):
                 boards = [boards]
-            identity = select_identity(manifest, {board.lower() for board in boards})
+            identity = select_identity(
+                manifest, {board.lower()} if board else {item.lower() for item in boards}
+            )
             result["identity"] = identity["Info"]
             # Extract one normal customer identity, never a RecoveryOS replacement.
             components = {}
@@ -162,8 +164,8 @@ def extract(root, plan, asset_id):
                     ):
                         if not directory.is_dir():
                             continue
-                        for arch in ("arm64e", "arm64"):
-                            cache = directory / ("dyld_shared_cache_" + arch)
+                        for cache_arch in (arch,) if arch else ("arm64e", "arm64"):
+                            cache = directory / ("dyld_shared_cache_" + cache_arch)
                             if not cache.is_file():
                                 continue
                             for name in MODULES:

@@ -4,7 +4,7 @@
 import struct
 import unittest
 
-from offline_resolver import arm64e_pointer, patch_chains
+from offline_resolver import arm64e_pointer, chained_pointer, patch_chains
 
 
 class FixupTests(unittest.TestCase):
@@ -22,6 +22,19 @@ class FixupTests(unittest.TestCase):
         self.assertEqual(arm64e_pointer(raw, 9, 0)[2:], (7, -3))
         with self.assertRaises(ValueError):
             arm64e_pointer(0, 13, 0)
+
+    def test_plain_64bit_pointer_offsets_stride_and_unsigned_addend(self):
+        self.assertEqual(
+            chained_pointer((2 << 51) | 0x480, 6, 0x100000000), (8, 0x100000480, None, 0)
+        )
+        self.assertEqual(chained_pointer(0x100000480, 2, 0x100000000), (0, 0x100000480, None, 0))
+        self.assertEqual(
+            chained_pointer((0xAB << 36) | 0x480, 6, 0x100000000)[1], 0xAB00000100000480
+        )
+        self.assertEqual(chained_pointer((1 << 63) | (255 << 24) | 7, 6, 0), (0, None, 7, 255))
+        for malformed in [(1 << 44), (1 << 63) | (1 << 32)]:
+            with self.assertRaises(ValueError):
+                chained_pointer(malformed, 6, 0)
 
     def test_rebase_only_changes_modeled_memory(self):
         # One segment, one page, one authenticated rebase. No imports.
