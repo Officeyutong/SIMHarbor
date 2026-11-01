@@ -79,7 +79,13 @@ def main():
     )
     if shutil.disk_usage(archive).free < pending + 50 * 1024**3:
         raise SystemExit("Insufficient free space for selected archives plus 50 GiB reserve")
-    state = {"planned_bytes": total, "results": {}}
+    receipt = args.root / "reports/targeted-download-status.json"
+    previous = json.loads(receipt.read_text()) if receipt.exists() else {}
+    state = {
+        "planned_bytes": total,
+        "current_plan_assets": [a["asset"] for a in assets],
+        "results": previous.get("results", {}),
+    }
 
     def one(a):
         path = archive / (a["asset"] + ".ipsw")
@@ -138,7 +144,7 @@ def main():
                 state["results"][a["asset"]] = {"status": "failed", "error": str(error)}
             dump(args.root / "reports/targeted-download-status.json", state)
             print(a["version"], a["device"], state["results"][a["asset"]]["status"], flush=True)
-    if any(r["status"] != "verified" for r in state["results"].values()):
+    if any(state["results"][a["asset"]]["status"] != "verified" for a in assets):
         raise SystemExit(1)
 
 

@@ -49,6 +49,25 @@ Static inspection uses the pinned ipsw CLI and Python Capstone (validated with 5
 
 Only after identifying gaps should individual archives/images be acquired, target Mach-O slices hashed/deduplicated, and function-level diffs or offline resolver replays performed. Preserve code-access displacements during instruction normalization. Compare CommCenter with its driver module, and validate on devices separately.
 
+
+## File-model resolver replay
+
+`offline_resolver.py` reconstructs readable segments from thin Mach-O files and decodes ARM64e chained fixups (formats 1, 9 and 12) into a separate memory model. It binds `isSimReady` to its extracted export; other imports use out-of-image placeholders. It reconstructs block labels with `c++filt` and normalizes the block-pointer qualifier spelling to the established CoreSymbolication fixture. Unsupported pointer/import encodings fail explicitly. This is a bounded analysis adapter, not a complete dynamic linker or an emulator.
+
+```sh
+clang++-22 -std=c++17 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer \
+  -I/usr/lib/python3/dist-packages/capstone/include \
+  research/firmware/offline_resolver.cpp tweak/ResolverCore.cpp \
+  -l:libcapstone.so.5 -o "$CORPUS/tools/offline-resolver"
+python3 research/firmware/offline_resolver.py "$CORPUS/artifacts/ASSET" \
+  --output "$CORPUS/replays/ASSET" --runner "$CORPUS/tools/offline-resolver"
+python3 research/firmware/test_offline_resolver.py
+```
+
+The native runner uses the project's actual ResolverCore and emits a partial or complete plan. An unresolved plan is an analysis result, while malformed model input or a crashing runner is an error. The established 17.2.1 file sample reproduces all 16 known fixture discoveries using module-relative addresses/field offsets. This calibration does not establish that every firmware encoding is supported. No target instructions, Registry getters, hooks or live-object probes execute in the host harness.
+
+The iPhone 12 mini 16.5.1 (20F75) sample reproduces a static failure at SimInfo-container discovery: its worker walks inline objects (observed stride `0x138`, logical field `+0x4`), while the current rule/reader expect shared-pointer entries. Do not fix this by substituting one vector offset: entry representation and traversal must also be inferred and validated. This is a known analysis finding, not a runtime fix or a device-tested support claim.
+
 # 固件覆盖研究
 
 工具在主机侧索引 **iOS 14.0 至 26.0.1 的正式版及快速安全响应版本**，覆盖元数据中全部适用的 iPhone 设备标识。边界按版本号比较，不设发布日期上限。Beta／RC 差异报告可作为补充证据，但不会混入正式版设备／Build 目标集合，也不会改变 App 的运行时兼容策略。

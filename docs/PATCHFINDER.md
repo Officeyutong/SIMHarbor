@@ -203,3 +203,9 @@ Changed symbols, stripped RTTI, different compiler output, oversized functions, 
 This article remains repository documentation. The app bundles only its bilingual user guide; its firmware report remains a separate diagnostic tool.
 
 Slot management skips unassigned SimInfo nodes (logical ID ≤ 0), while retaining assigned inactive slots. Such placeholder nodes remain relevant to layout discovery; do not hardcode a hardware ID exclusion. Logical IDs are discovered rather than restricted to 1/2. See [multiple slots](MULTI_SLOT.md) for routing, EID protection and test scope.
+
+### Known inline-container gap
+
+Offline file-model replay of the iPhone 12 mini iOS 16.5.1 (20F75) image validates driver signatures and reaches the final worker-layout stage, where the current shared-pointer pattern finds no candidate. The observed loop loads bounds at controller `+0xf8`, reads a word directly from the cursor at `+0x4`, and advances the cursor by `0x138`; the matched cursor is passed to the state getter. This is inline SimInfo storage. The established 17.2.1 sample instead dereferences shared-pointer entries before reading logical ID `+0x24`.
+
+These are observations for those samples, not version-based constants. Supporting the inline case requires discovering both entry representation and stride, then adapting the borrowed container view and live-field validation. Updating only `simVector` would retain the wrong pointer traversal. The current adapter has not yet implemented this path. The [host replay tools](../research/firmware/README.md#file-model-resolver-replay) model fixups and reproduce the discovery gap without executing iOS code; they do not validate runtime symbolication, hooks, object lifetime or card communication.
