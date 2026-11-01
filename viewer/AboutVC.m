@@ -1,6 +1,57 @@
 #import "AboutVC.h"
 #import "Localization.h"
 
+@interface SHAboutLinkCell : UITableViewCell
+- (instancetype)initWithTitle:(NSString *)title
+                      address:(NSString *)address
+                       symbol:(NSString *)symbol;
+@end
+@implementation SHAboutLinkCell
+- (instancetype)initWithTitle:(NSString *)title
+                      address:(NSString *)address
+                       symbol:(NSString *)symbol {
+    if ((self = [super initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil])) {
+        self.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:symbol]];
+        icon.contentMode = UIViewContentModeScaleAspectFit;
+        icon.translatesAutoresizingMaskIntoConstraints = NO;
+        UILabel *heading = [UILabel new];
+        heading.text = title;
+        heading.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+        heading.adjustsFontForContentSizeCategory = YES;
+        heading.numberOfLines = 0;
+        UILabel *url = [UILabel new];
+        url.text = address;
+        url.font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
+        url.adjustsFontForContentSizeCategory = YES;
+        url.textColor = UIColor.secondaryLabelColor;
+        url.numberOfLines = 0;
+        url.lineBreakMode = NSLineBreakByCharWrapping;
+        UIStackView *labels = [[UIStackView alloc] initWithArrangedSubviews:@[ heading, url ]];
+        labels.axis = UILayoutConstraintAxisVertical;
+        labels.spacing = 4;
+        labels.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.contentView addSubview:icon];
+        [self.contentView addSubview:labels];
+        UILayoutGuide *margins = self.contentView.layoutMarginsGuide;
+        [NSLayoutConstraint activateConstraints:@[
+            [icon.leadingAnchor constraintEqualToAnchor:margins.leadingAnchor],
+            [icon.widthAnchor constraintEqualToConstant:24],
+            [icon.heightAnchor constraintEqualToConstant:24],
+            [icon.centerYAnchor constraintEqualToAnchor:labels.centerYAnchor],
+            [labels.leadingAnchor constraintEqualToAnchor:icon.trailingAnchor constant:12],
+            [labels.trailingAnchor constraintEqualToAnchor:margins.trailingAnchor],
+            [labels.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:12],
+            [labels.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-12]
+        ]];
+        self.isAccessibilityElement = YES;
+        self.accessibilityLabel = [NSString stringWithFormat:@"%@, %@", title, address];
+        self.accessibilityTraits = UIAccessibilityTraitLink;
+    }
+    return self;
+}
+@end
+
 @interface SHLicensesVC : UIViewController
 @property(nonatomic, strong) UITextView *text;
 @end
@@ -97,6 +148,16 @@
     return section == 0 ? SHL(@"Application") : SHL(@"Resources");
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)index {
+    if (index.section == 1 && index.row <= 1) {
+        BOOL repository = index.row == 1;
+        SHAboutLinkCell *cell = [[SHAboutLinkCell alloc]
+            initWithTitle:repository ? SHL(@"Source repository") : @"GitHub"
+                  address:repository ? @"github.com/Officeyutong/SIMHarbor"
+                                     : @"github.com/officeyutong"
+                   symbol:repository ? @"chevron.left.forwardslash.chevron.right" : @"link"];
+        cell.accessibilityIdentifier = repository ? @"about.repository" : @"about.github";
+        return cell;
+    }
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1
                                                    reuseIdentifier:nil];
     cell.textLabel.numberOfLines = 0;
@@ -118,10 +179,6 @@
         cell.textLabel.text = @[
             @"GitHub", SHL(@"Source repository"), SHL(@"User guide"), SHL(@"Open-source licenses")
         ][index.row];
-        if (index.row == 0)
-            cell.detailTextLabel.text = @"github.com/officeyutong";
-        if (index.row == 1)
-            cell.detailTextLabel.text = @"github.com/Officeyutong/SIMHarbor";
         cell.imageView.image = [UIImage systemImageNamed:@[
             @"link", @"chevron.left.forwardslash.chevron.right", @"book.closed", @"doc.text"
         ][index.row]];

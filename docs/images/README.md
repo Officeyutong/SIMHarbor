@@ -1,6 +1,6 @@
 # README screenshots
 
-English UI captures from SIMHarbor 1.3.15 on an iPhone 13 running iOS 17.2.1:
+English UI captures from SIMHarbor 1.3.16 on an iPhone 13 running iOS 17.2.1:
 
 - `profiles-en.png`: profile list and scan/import entry points.
 - `slots-en.png`: automatic and manual slot selection.

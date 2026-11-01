@@ -1,5 +1,17 @@
 # Release notes / 版本记录
 
+## 1.3.16 — build 1316
+
+### English
+
+- Fix overlapping repository addresses on the English and Chinese About page. Developer and repository links now use a vertical title/address layout with explicit self-sizing constraints, full URL wrapping, Dynamic Type and accessible link labels.
+- Refresh the English README screenshots after verifying the corrected layout on the phone. Link destinations are unchanged.
+
+### 简体中文
+
+- 修复中英文关于页面仓库地址换行、行高不足及文字重叠。开发者和仓库链接改用上下排列的标题/地址，通过明确约束自动撑高，支持完整地址换行、动态字体和无障碍链接标签。
+- 真机核对布局后更新 README 英文截图，链接目标保持不变。
+
 ## 1.3.15 — build 1315
 
 ### English
