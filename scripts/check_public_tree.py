@@ -29,6 +29,14 @@ IMAGE_NAMES = {
     "QRFixture.png",
 }
 
+# Exact paths of README screenshots reviewed after hiding personal card labels.
+README_IMAGES = {
+    "docs/images/profiles-en.png",
+    "docs/images/slots-en.png",
+    "docs/images/guide-en.png",
+    "docs/images/about-en.png",
+}
+
 
 def paths():
     if (ROOT / ".git").is_dir():
@@ -68,7 +76,7 @@ def main():
             errors.append((str(rel), "private data or generated binary"))
             continue
         if p.suffix == ".png":
-            if p.name not in IMAGE_NAMES:
+            if p.name not in IMAGE_NAMES and rel.as_posix() not in README_IMAGES:
                 errors.append((str(rel), "unapproved image capture"))
             continue
         if p.is_symlink():

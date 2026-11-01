@@ -8,6 +8,16 @@ Features include runtime slot discovery, automatic or manual card selection with
 
 Compatibility is inferred at runtime by the Patchfinder, without a device-model, iOS-build or image-UUID allowlist. A complete, unique code plan and matching interface signatures enable transport hooks; live-object and slot validation must also pass before card commands. UUIDs are diagnostic metadata only. iPhone 13 / iOS 17.2.1 (21C66), roothide remains the device-tested baseline, not a prerequisite. Other firmware still needs validation. The app currently uses iOS 14+ UI APIs and an ARM64 transport adapter.
 
+## Screenshots
+
+English UI captured on an iPhone 13 running iOS 17.2.1. Profile names, providers and card identifiers are hidden for privacy.
+
+| Profiles | Card slots |
+| --- | --- |
+| <img src="docs/images/profiles-en.png" alt="Profiles — English UI" width="300"> | <img src="docs/images/slots-en.png" alt="Card slots — English UI" width="300"> |
+| **User guide** | **About** |
+| <img src="docs/images/guide-en.png" alt="User guide — English UI" width="300"> | <img src="docs/images/about-en.png" alt="About — English UI" width="300"> |
+
 ## Build on Linux
 
 The build uses Ubuntu 24.04, Clang 22, pinned roothide/Theos, SDK 16.5, and a legacy Darwin linker toolchain. Dependencies are downloaded into ignored directories. No device credentials, activation codes, or Apple developer signing certificates are required.

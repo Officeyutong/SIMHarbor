@@ -8,6 +8,16 @@
 
 兼容性由 Patchfinder 在运行时推断，不再使用机型、iOS 构建或镜像 UUID 白名单。代码计划完整且唯一、接口签名匹配后安装通道 Hook；活对象和卡槽检查通过后才发送卡片命令。UUID 仅用于诊断。iPhone 13 / iOS 17.2.1（21C66）、roothide 是实测基线，不是运行前提；其他固件仍需验证。App 目前使用 iOS 14+ 界面 API 和 ARM64 通道适配器。
 
+## 界面截图
+
+以下为 iPhone 13 / iOS 17.2.1 上的英文界面实机截图。卡片名称、运营商及卡片标识已隐藏。
+
+| 卡片列表 | 卡槽选择 |
+| --- | --- |
+| <img src="docs/images/profiles-en.png" alt="卡片列表 — English UI" width="300"> | <img src="docs/images/slots-en.png" alt="卡槽选择 — English UI" width="300"> |
+| **使用说明** | **关于** |
+| <img src="docs/images/guide-en.png" alt="使用说明 — English UI" width="300"> | <img src="docs/images/about-en.png" alt="关于 — English UI" width="300"> |
+
 ## Linux 构建
 
 使用 Ubuntu 24.04、Clang 22、固定版本 roothide/Theos、SDK 16.5 和旧版 Darwin 链接工具。依赖会下载到忽略目录，不需要设备账号、激活码或 Apple 开发者签名证书。
