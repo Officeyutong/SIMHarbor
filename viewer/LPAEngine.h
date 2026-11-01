@@ -8,6 +8,9 @@
 - (instancetype)initWithSlot:(int)slot expectedEID:(NSString *)eid;
 + (NSArray<NSDictionary *> *)availableSlots:(NSError **)error;
 + (NSOperationQueue *)operationQueue;
++ (BOOL)automaticNotificationsEnabled;
++ (BOOL)automaticallySubmitsOperation:(NSString *)operation;
+- (BOOL)submitAutomaticNotifications:(NSError **)error;
 @property(nonatomic, copy) NSString *downloadIMEI;
 - (BOOL)allowOwnNetworking:(NSError **)error;
 - (BOOL)checkNetwork:(NSError **)error;

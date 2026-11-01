@@ -1,5 +1,19 @@
 # Release notes / 版本记录
 
+## 1.3.19 — build 1319
+
+### English
+
+- Default to automatic operator notification submission after successful installation, deletion and profile switching. Add a master switch under Card and settings, retain category switches and existing opt-outs. Merely selecting a slot remains read-only.
+- Submit all pending enabled-category notifications on the same EID-bound eUICC in sequence order, including both sides of a profile switch. Remove each notification only after successful submission; stop on the first error, retain pending entries and show a warning while keeping the completed profile operation successful. Preserve other operation warnings.
+- Add a device-side `--notification-check` using fixture-only card/network methods for defaults, opt-outs, paired switch events, failure retention and warning preservation. The native fixture checks, offline sanitizer/localization checks and device settings-switch checks pass; no real profile change or operator notification submission was used for this validation. Update the bilingual guide.
+
+### 简体中文
+
+- 安装、删除及切换配置成功后默认自动提交运营商通知。“卡片与设置”新增总开关，保留分类开关及用户原有的关闭设置。仅选择管理卡槽仍为只读。
+- 按序号提交同一 EID 绑定 eUICC 上所有已启用类别的待处理通知，包括切换时新配置启用和原配置停用的通知。每条提交成功后才移除，首个错误即停止，保留待处理通知并提示；已完成的卡片操作仍报告成功，其他操作警告也会保留。
+- 增加真机 `--notification-check`，使用模拟卡片/网络方法验证默认值、关闭设置、成对切换事件、失败保留及警告保留。原生模拟测试、离线 sanitizer/本地化检查及真机设置开关联动检查通过；本次验证没有实际修改配置或向运营商提交通知。更新双语使用说明。
+
 ## 1.3.18 — build 1318
 
 ### English

@@ -51,11 +51,13 @@ GitHub Actions workflow: `.github/workflows/build.yml`.
 
 Releases require all three variants to succeed. Assets include `SIMHarbor_VERSION_rootful.deb`, `SIMHarbor_VERSION_rootless.deb`, `SIMHarbor_VERSION_roothide.deb`, a combined `SHA256SUMS`, and per-scheme build metadata.
 
-To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.18 (build 1318). See the [release notes](docs/RELEASES.md).
+To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.19 (build 1319). See the [release notes](docs/RELEASES.md).
 
 ## Tests and validation scope
 
 On an authorized device, the installed executable's `--error-check` mode replays bilingual error fixtures, including an existing ICCID, insufficient space, an unspecified failure and an underlying network timeout. It checks that diagnostic snapshots survive later state replacement; it sends no card or network requests.
+
+The installed executable's `--notification-check` uses fixture-only card/network methods to verify automatic notification defaults, opt-outs, paired switch events, submission ordering and failure retention. It sends no card or network requests and restores the preferences it temporarily changes.
 
 Local checks cover bilingual documentation and privacy, codecs, malformed inputs, real libeuicc mock-card flows, ASan/UBSan, and the CI release policy against real Git histories. See the [validation notes](docs/VALIDATION.md) for the scope of read-only device checks and full write tests. CI does not connect to a phone, download a real profile, or switch profiles.
 

@@ -302,3 +302,13 @@
 "More response data is available (61xx). Raw APDU mode stopped before GET RESPONSE. Fill the Get EID example to use ES10 DER and collect the complete response." = "More response data is available (61xx). Raw APDU mode stopped before GET RESPONSE. Fill the Get EID example to use ES10 DER and collect the complete response.";
 
 "The card requested a different response length (6Cxx). Raw APDU mode does not retry. Check SW2 and the command's Le before sending a corrected command." = "The card requested a different response length (6Cxx). Raw APDU mode does not retry. Check SW2 and the command's Le before sending a corrected command.";
+
+"Automatically submit notifications" = "Automatically submit notifications";
+
+"Automatic submission is on by default. After installing, deleting or switching profiles, submit pending notifications for enabled categories. Failed submissions remain pending for manual retry." = "Automatic submission is on by default. After installing, deleting or switching profiles, submit pending notifications for enabled categories. Failed submissions remain pending for manual retry.";
+
+"Checking pending operator notifications…" = "Checking pending operator notifications…";
+
+"Submitting operator notifications…" = "Submitting operator notifications…";
+
+"The profile operation completed, but some operator notifications are pending. Open Notifications to retry." = "The profile operation completed, but some operator notifications are pending. Open Notifications to retry.";

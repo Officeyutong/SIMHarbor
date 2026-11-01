@@ -22,7 +22,7 @@ The information button opens Card info and settings, Notifications and Signal co
 
 - Card information includes EID, free storage/working memory, firmware, RSP and profile versions.
 - Settings include the default SM-DP+, an unauthenticated HTTP CONNECT proxy, APDU MSS and refresh after switching.
-- Automatic install, delete and switch notifications have separate settings. Submit notifications individually or in a batch; remove them after successful submission. Remove-only does not notify the operator.
+- Automatic operator notification submission is enabled by default. In Card and settings → Notifications and switching, turn off Automatically submit notifications to disable it, or disable individual install/delete/switch categories. After a successful install, deletion or profile switch, the app submits all pending notifications of enabled categories on that same eUICC, including the old profile’s disable notification during a switch. Submission stops on the first error, keeps unsubmitted notifications, and reports a warning without undoing the completed profile operation. Merely selecting a management slot does not send notifications. Submit notifications individually or in a batch; remove them after successful submission. Remove-only does not notify the operator.
 - An entire-card reset checks the EID and requires typing `RESET`. It removes profiles and has not been tested on the existing card.
 - App → Language offers Follow system, English and Simplified Chinese. The interface changes immediately; logs remain English.
 

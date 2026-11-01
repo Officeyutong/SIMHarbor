@@ -1581,6 +1581,10 @@ static int SHDiagnose(int argc, char **argv) {
     }
 }
 int main(int argc, char *argv[]) {
+    if (argc > 1 && strcmp(argv[1], "--notification-check") == 0) {
+        extern int SHNotificationCheck(void);
+        return SHNotificationCheck();
+    }
     if (argc > 1 && strcmp(argv[1], "--error-check") == 0) {
         extern int SHErrorDiagnosticsCheck(void);
         return SHErrorDiagnosticsCheck();

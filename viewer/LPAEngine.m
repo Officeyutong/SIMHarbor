@@ -613,10 +613,6 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
         }
         installed = YES;
         [self stage:@"Confirming the installation result…"];
-        if ([self autoNotify:@"SHNotifyDownload"] && ![self notify:result.seqNumber ctx:&c])
-            [self
-                warn:
-                    @"Profile installed, but the result notification is pending. Use Notifications to retry."];
         return YES;
     } @finally {
         if (!installed) {
@@ -630,6 +626,8 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
         free(result.iccid);
         euicc_http_cleanup(&c);
         euicc_fini(&c);
+        if (installed)
+            [self finishAutomaticNotifications];
     }
 }
 - (BOOL)deleteProfile:(NSString *)iccid error:(NSError **)e {
@@ -637,7 +635,6 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
     if (![self begin:&c error:e])
         return NO;
     struct es10c_profile_info_list *list = NULL;
-    struct es10b_notification_metadata_list *notes = NULL;
     BOOL success = NO;
     @try {
         [self stage:@"Checking the profile…"];
@@ -671,32 +668,74 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
         }
         success = YES;
         [self stage:@"Confirming the deletion result…"];
-        if (!es10b_list_notification(&c, &notes)) {
-            unsigned long newest = 0;
-            BOOL have = NO;
-            for (struct es10b_notification_metadata_list *p = notes; p; p = p->next)
-                if (p->iccid && [iccid isEqual:@(p->iccid)] &&
-                    p->profileManagementOperation == ES10B_PROFILE_MANAGEMENT_OPERATION_DELETE) {
-                    if (!have || p->seqNumber > newest) {
-                        newest = p->seqNumber;
-                        have = YES;
-                    }
-                }
-            if (have && [self autoNotify:@"SHNotifyDelete"] && ![self notify:newest ctx:&c])
-                [self warn:@"Profile deleted, but the operator notification is pending."];
-        }
         return success;
     } @finally {
         es10c_profile_info_list_free_all(list);
-        es10b_notification_metadata_list_free_all(notes);
         euicc_http_cleanup(&c);
         euicc_fini(&c);
+        if (success)
+            [self finishAutomaticNotifications];
     }
 }
 
-- (BOOL)autoNotify:(NSString *)key {
-    NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
-    return [d objectForKey:key] ? [d boolForKey:key] : YES;
+static BOOL SHDefaultEnabled(NSString *key) {
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    return [defaults objectForKey:key] ? [defaults boolForKey:key] : YES;
+}
++ (BOOL)automaticNotificationsEnabled {
+    return SHDefaultEnabled(@"SHNotifyAuto");
+}
++ (BOOL)automaticallySubmitsOperation:(NSString *)operation {
+    if (![self automaticNotificationsEnabled])
+        return NO;
+    NSString *key = @{
+        @"Install" : @"SHNotifyDownload",
+        @"Delete" : @"SHNotifyDelete",
+        @"Enable" : @"SHNotifySwitch",
+        @"Disable" : @"SHNotifySwitch"
+    }[operation];
+    return key && SHDefaultEnabled(key);
+}
+- (BOOL)submitAutomaticNotifications:(NSError **)error {
+    if (![SHLPA automaticallySubmitsOperation:@"Install"] &&
+        ![SHLPA automaticallySubmitsOperation:@"Delete"] &&
+        ![SHLPA automaticallySubmitsOperation:@"Enable"])
+        return YES;
+    [self stage:@"Checking pending operator notifications…"];
+    NSArray *items = [self notifications:error];
+    if (!items)
+        return NO;
+    items =
+        [items sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+            return [a[@"sequence"] compare:b[@"sequence"]];
+        }];
+    for (NSDictionary *item in items) {
+        if (![SHLPA automaticallySubmitsOperation:item[@"operation"]])
+            continue;
+        [self stage:@"Submitting operator notifications…"];
+        [[SHTraceLog shared]
+            event:[NSString stringWithFormat:@"Automatic notification: sequence=%@ operation=%@.",
+                                             item[@"sequence"], item[@"operation"]]];
+        if (![self processNotification:[item[@"sequence"] unsignedLongValue]
+                            removeOnly:NO
+                                 error:error])
+            return NO;
+    }
+    return YES;
+}
+- (void)finishAutomaticNotifications {
+    NSString *previousWarning = self.lastWarning;
+    NSError *error = nil;
+    if (![self submitAutomaticNotifications:&error]) {
+        [[SHTraceLog shared] error:error];
+        [self
+            warn:
+                @"The profile operation completed, but some operator notifications are pending. Open Notifications to retry."];
+        if (previousWarning.length)
+            self.lastWarning =
+                [NSString stringWithFormat:@"%@\n\n%@", previousWarning, self.lastWarning];
+    } else
+        self.lastWarning = previousWarning;
 }
 - (BOOL)setProfile:(NSString *)iccid enabled:(BOOL)enabled error:(NSError **)e {
     NSDictionary *before = [self readCard:e];
@@ -758,35 +797,11 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
                        }];
         return NO;
     }
-    if ([self autoNotify:@"SHNotifySwitch"]) {
-        struct euicc_ctx n;
-        if ([self begin:&n error:nil]) {
-            struct es10b_notification_metadata_list *list = NULL;
-            if (!es10b_list_notification(&n, &list)) {
-                unsigned long seq = 0;
-                BOOL found = NO;
-                for (struct es10b_notification_metadata_list *p = list; p; p = p->next)
-                    if (p->iccid && [iccid isEqual:@(p->iccid)] &&
-                        p->profileManagementOperation ==
-                            (enabled ? ES10B_PROFILE_MANAGEMENT_OPERATION_ENABLE
-                                     : ES10B_PROFILE_MANAGEMENT_OPERATION_DISABLE)) {
-                        if (!found || p->seqNumber > seq) {
-                            seq = p->seqNumber;
-                            found = YES;
-                        }
-                    }
-                if (found && ![self notify:seq ctx:&n])
-                    [self warn:@"Profile state updated, but the operator notification is pending."];
-            }
-            es10b_notification_metadata_list_free_all(list);
-            euicc_http_cleanup(&n);
-            euicc_fini(&n);
-        }
-    }
     if (!refresh)
         [self
             warn:
                 @"Card state updated without requesting refresh. Reinsertion may be needed to use the new profile."];
+    [self finishAutomaticNotifications];
     return YES;
 }
 - (BOOL)renameProfile:(NSString *)iccid name:(NSString *)name error:(NSError **)e {

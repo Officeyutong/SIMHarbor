@@ -101,7 +101,7 @@
 - (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s {
     if (self.notificationMode)
         return MAX((NSUInteger)1, self.items.count);
-    return s == 0 ? 8 : s == 1 ? 3 : s == 2 ? 4 : 1;
+    return s == 0 ? 8 : s == 1 ? 3 : s == 2 ? 5 : 1;
 }
 - (NSString *)tableView:(UITableView *)t titleForHeaderInSection:(NSInteger)s {
     if (self.notificationMode)
@@ -115,6 +115,9 @@
     if (self.notificationMode)
         return SHL(
             @"Notifications are removed after successful submission. Remove-only does not notify the operator.");
+    if (s == 2)
+        return SHL(
+            @"Automatic submission is on by default. After installing, deleting or switching profiles, submit pending notifications for enabled categories. Failed submissions remain pending for manual retry.");
     return s == 3
                ? SHL(@"Reset removes profiles from the entire card. You may need to download them again.")
                : nil;
@@ -158,14 +161,18 @@
             @[ SHL(@"Default SM-DP+"), SHL(@"SM-DS address"), SHL(@"HTTP CONNECT proxy") ][i.row];
         c.detailTextLabel.text=i.row==2?([NSUserDefaults.standardUserDefaults stringForKey:@"SHHTTPProxy"]?:SHL(@"Not set")):self.card[i.row?@"discoveryServer":@"defaultServer"]?:@"";
     } else if (i.section == 2) {
-        NSArray *keys =
-            @[ @"SHNotifyDownload", @"SHNotifyDelete", @"SHNotifySwitch", @"SHRefresh" ];
+        NSArray *keys = @[
+            @"SHNotifyAuto", @"SHNotifyDownload", @"SHNotifyDelete", @"SHNotifySwitch", @"SHRefresh"
+        ];
         c.textLabel.text = @[
-            SHL(@"Submit install notifications"), SHL(@"Submit delete notifications"),
-            SHL(@"Submit switch notifications"), SHL(@"Request refresh after switching")
+            SHL(@"Automatically submit notifications"), SHL(@"Submit install notifications"),
+            SHL(@"Submit delete notifications"), SHL(@"Submit switch notifications"),
+            SHL(@"Request refresh after switching")
         ][i.row];
         UISwitch *s = [UISwitch new];
         s.tag = i.row;
+        s.accessibilityIdentifier = keys[i.row];
+        s.enabled = i.row == 0 || i.row == 4 || [SHLPA automaticNotificationsEnabled];
         NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
         s.on = [d objectForKey:keys[i.row]] ? [d boolForKey:keys[i.row]] : YES;
         [s addTarget:self action:@selector(toggle:) forControlEvents:UIControlEventValueChanged];
@@ -214,10 +221,12 @@
     [self presentViewController:a animated:YES completion:nil];
 }
 - (void)toggle:(UISwitch *)s {
-    [NSUserDefaults.standardUserDefaults
-        setBool:s.on
-         forKey:@[ @"SHNotifyDownload", @"SHNotifyDelete", @"SHNotifySwitch",
-                   @"SHRefresh" ][s.tag]];
+    [NSUserDefaults.standardUserDefaults setBool:s.on
+                                          forKey:@[
+                                              @"SHNotifyAuto", @"SHNotifyDownload",
+                                              @"SHNotifyDelete", @"SHNotifySwitch", @"SHRefresh"
+                                          ][s.tag]];
+    [self.tableView reloadData];
 }
 - (void)tableView:(UITableView *)t didSelectRowAtIndexPath:(NSIndexPath *)i {
     [t deselectRowAtIndexPath:i animated:YES];

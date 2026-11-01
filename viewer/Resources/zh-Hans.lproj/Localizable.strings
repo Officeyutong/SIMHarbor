@@ -302,3 +302,13 @@
 "More response data is available (61xx). Raw APDU mode stopped before GET RESPONSE. Fill the Get EID example to use ES10 DER and collect the complete response." = "卡片还有后续响应数据（61xx），并非命令失败。原始 APDU 模式在 GET RESPONSE 前停止。请点击“填入 Get EID 示例”，使用 ES10 DER 模式收集完整响应。";
 
 "The card requested a different response length (6Cxx). Raw APDU mode does not retry. Check SW2 and the command's Le before sending a corrected command." = "卡片要求不同的响应长度（6Cxx）。原始 APDU 模式不会重试；请检查 SW2 和命令的 Le，再发送修正后的命令。";
+
+"Automatically submit notifications" = "自动提交通知";
+
+"Automatic submission is on by default. After installing, deleting or switching profiles, submit pending notifications for enabled categories. Failed submissions remain pending for manual retry." = "默认开启自动提交。在安装、删除或切换配置后，提交已启用类别的待处理通知。提交失败的通知会保留，可稍后手动重试。";
+
+"Checking pending operator notifications…" = "正在检查待提交的运营商通知…";
+
+"Submitting operator notifications…" = "正在提交运营商通知…";
+
+"The profile operation completed, but some operator notifications are pending. Open Notifications to retry." = "卡片操作已完成，但部分运营商通知尚未提交。请进入“通知”重试。";
