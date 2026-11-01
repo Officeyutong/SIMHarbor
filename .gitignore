@@ -30,3 +30,5 @@ releases/
 *.p12
 *.mobileprovision
 .DS_Store
+/compile_commands.json
+/.cache
