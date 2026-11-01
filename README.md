@@ -39,6 +39,14 @@ Linux setup includes `libplist-utils` and its runtime dependency. Before compili
 
 Dependency sources, revisions, and checksums are recorded in `ci/dependencies.json`, `vendor/frida-gum/PROVENANCE.json` and `vendor/nlohmann/PROVENANCE.json`. Project-owned runtime JSON uses nlohmann/json 3.12.0 and shared typed app/tweak models; libeuicc retains its upstream cJSON implementation. Each build generates shared random IPC pairing material for its app and extension, then removes the generated header. Install the app and extension together from the same build.
 
+## VSCode and clangd
+
+For Linux Remote-SSH/Dev Containers, install `clangd-22` alongside the project's Clang 22 toolchain. The workspace settings select that executable. Generate `compile_commands.json` in the repository root from a real build, for example with `bear -- bash build.sh` after configuring Theos; regenerate it after changing SDKs or build schemes. Keep the machine-specific database untracked.
+
+The project `.clangd` uses that database and disables implicit SDK modules **for indexing only**. Clang supports Objective-C `#import`; a “Could not build module Foundation” diagnostic can come from an earlier Darwin/libc++ module error, not unsupported syntax. Clangd 18 also lacks the `ptrauth.h` needed by this adapter. The editor-only `SH_CLANGD` flag supplies a declaration for the build-generated pairing key; it contains no key and does not change real build flags.
+
+Open the SIMHarbor repository folder in VSCode, install/enable the clangd extension on the remote side, then run **clangd: Restart language server**. Check the clangd Output channel for version 22 and the loaded compilation database if diagnostics persist. Official reference: [clangd configuration](https://clangd.llvm.org/config).
+
 ## Automated builds and releases
 
 GitHub Actions workflow: `.github/workflows/build.yml`.

@@ -67,6 +67,14 @@ Release 要求三种构建全部成功，包含三个 `SIMHarbor_VERSION_方案.
 
 可选的镜像回放测试：`python3 tests/check_resolver.py /path/to/resolver-fixture`，需要自己从授权设备获取的私有镜像；这些数据不纳入仓库或 CI。
 
+## VSCode 与 clangd
+
+Linux Remote-SSH／Dev Container 环境中，安装与项目 Clang 22 配套的 `clangd-22`，仓库的 VSCode 设置会选择该程序。配置好 Theos 后，可用 `bear -- bash build.sh` 从真实构建生成仓库根目录的 `compile_commands.json`；SDK 或构建方案变更后重新生成，机器相关数据库不提交到 Git。
+
+项目 `.clangd` 使用该数据库，并**仅对索引禁用隐式 SDK 模块**。Clang 支持 Objective-C 的 `#import`；“Could not build module Foundation” 可能源于更早的 Darwin/libc++ 模块错误，并非语法不支持。Clangd 18 还缺少此适配器所需的 `ptrauth.h`。编辑器专用 `SH_CLANGD` 标记只提供构建时生成的配对值的声明，不包含密钥，也不修改正式构建参数。
+
+在 VSCode 中打开 SIMHarbor 仓库目录，在远端安装／启用 clangd 扩展，然后执行 **clangd: Restart language server**。若诊断仍存在，可在 clangd 输出窗口核对版本 22 及加载的编译数据库。官方说明：[clangd 配置](https://clangd.llvm.org/config)。
+
 ## 文档
 
 App 仅内置双语使用说明，技术文章保留在仓库中：

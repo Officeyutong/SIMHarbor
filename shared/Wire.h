@@ -3,7 +3,13 @@
 #import <CommonCrypto/CommonHMAC.h>
 #import <sys/socket.h>
 #import <unistd.h>
+#ifdef SH_CLANGD
+// Indexing needs the type, not a real key. This declaration has no definition and
+// cannot supply pairing material to a linked binary. Builds generate PairingKey.h.
+FOUNDATION_EXPORT NSString *const SH_PAIRING_KEY;
+#else
 #import "PairingKey.h"
+#endif
 // Public wire protocol constant; the generated header contains only pairing material.
 #ifndef SH_PORT
 #define SH_PORT 18099

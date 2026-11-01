@@ -1,0 +1,14 @@
+# Linux clangd can fail to build the Apple SDK's implicit modules even when
+# the real build succeeds. Parse headers textually for indexing only.
+CompileFlags:
+  CompilationDatabase: .
+  Remove:
+    - -fmodules
+    - -fcxx-modules
+    - -fmodule-name=*
+    - -fmodules-*
+    - -fbuild-session-file=*
+  Add:
+    - -fno-modules
+    - -fno-implicit-modules
+    - -DSH_CLANGD=1

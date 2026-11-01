@@ -1,0 +1,4 @@
+{
+  "clangd.path": "clangd-22",
+  "clangd.arguments": ["--background-index"]
+}
