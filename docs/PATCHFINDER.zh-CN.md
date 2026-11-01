@@ -42,7 +42,7 @@ flowchart TD
 
 核心进一步筛选 `subscriber::EURSimCommandDriver` 的反修饰名称，将 `sendSimApdu_start`、`sendSimApdu_command`、`sendSimApdu_close` 三个普通方法，与命令方法内的匿名 block 区分开来。每个锚点都必须只有一个不同的候选地址。
 
-这里自动检查的是名称和边界，不是完整 C++ 函数签名。当前驱动依赖私有符号缓存，仅查导出表不能满足要求。生产路径不初始化 Gum 的全进程符号缓存，也不需要 GumJS 或 Frida server。
+三个具名入口还会比较完整的解修饰参数签名，包括槽位类型、vector 引用和回调/block 参数，比较时忽略空白差异。这些检查不等于证明私有 ABI 的所有细节。当前驱动依赖私有符号缓存，仅查导出表不能满足要求。生产路径不初始化 Gum 的全进程符号缓存，也不需要 GumJS 或 Frida server。
 
 ## 3. 解码指令并识别命令回调
 
@@ -107,6 +107,76 @@ ABI 和代码计划通过后，扩展 Hook 导出的 Registry getter，在 CommC
 | 活对象检查 | `driverMember`、`hardwareSlot` |
 
 前四行组成 18 项代码/镜像解析计划，最后一行增加 2 项活对象字段。Registry getter 也通过导出符号定位，不计入这 20 项。
+
+## 逐项说明：为什么要找、在哪里用、怎样找到
+
+这里的“偏移”实际包含几种值：**函数地址**用于调用或 Hook；**虚表地址**用于识别对象或作为分析锚点；**成员偏移**需要加到特定对象或回调参数上，再读取字段。成员偏移不能加到镜像基址上。报告中的 `imageOffset` 是地址相对所属镜像的位移，便于跨 ASLR 比较；通道实际调用的是本次解析出的地址。`driverMember` 和 `hardwareSlot` 即使在报告中显示为整数，也仍然是字节偏移。
+
+已实测镜像的具体数值见[发现结果示例](manual/zh-Hans/porting.md)，它们用于对照，不是下述算法的输入。使用位置在 [Apdu.mm](../tweak/Apdu.mm)，静态定位在 [ResolverCore.cpp](../tweak/ResolverCore.cpp) 的 `resolve`，活对象字段定位在 [RuntimeResolver.mm](../tweak/RuntimeResolver.mm) 的 `SHInferObjectLayout`。
+
+### A. 驱动入口与回调地址：6 项
+
+| 结果项 | 为什么需要／实际使用位置 | 怎样定位与检查 |
+|---|---|---|
+| `driverStart` | 基带没有报告 SIM 就绪时，直接打开 ISD-R，才能管理未激活的卡片或配置。`open` 分支传入活驱动、映射后的硬件槽、AID 和回调；打开回调返回分配的通道号。 | 枚举驱动模块的符号，选取非 block 的 `EURSimCommandDriver::sendSimApdu_start`，核对完整参数签名、驱动可执行范围和函数起点，并要求唯一地址。 |
+| `driverCommand` | `commandHook` 在普通打开路径捕获驱动、通道和响应 vector 引用。之后 `transmit` 调用 `commandOrig`，在保留的通道上触发新一轮交换；真正的 App APDU 在编码回调中替换进去。 | 选取驱动内非 block 的 `sendSimApdu_command`，要求完整参数签名、可执行函数起点及地址唯一；其内部 block 是后续回调搜索范围。 |
+| `driverClose` | `closeHook` 拦住匹配会话在打开／传输后自动关闭的动作，保留回调，使管理通道继续可用。显式 `closeSession` 调用 `closeOrig` 真正关闭通道并释放保留状态。 | 按完整参数签名查找非 block 的 `sendSimApdu_close`，要求唯一可执行函数起点。其地址也用于识别 QMI 回调中的直接关闭调用。 |
+| `encoder` | `encodeHook` 先执行原编码回调，再在活动传输且通道匹配时，把生成的 vector 换成 App 等待发送的 APDU。这是用户字节进入调制解调器交换的位置；把原始 APDU 当成高层 sender 的 AID 传入不能实现这一功能。 | 在命令方法的匿名 block 中，找第二参数偏移 8 处的 vector 尾部指针对 `LDP`，要求唯一；随后还要通过 `encoderChannel` 使用的相邻字节捕获字段检查。 |
+| `response` | `responseHook` 按活动硬件槽和通道筛选，复制包含 SW1/SW2 的原始响应 vector，交给 App，再调用原回调。 | 唯一候选必须同时具备第二参数偏移 0 处的 vector 范围指针对 `LDP`、正偏移的字长槽位捕获，以及下文要求的槽位／通道／指令相对布局。 |
+| `qmi` | `qmiHook` 在活动传输时记录基带传输结果，再调用原回调。结果非零时，即使存在部分响应字节，通道仍报告传输失败。 | 找到唯一命令 block：从响应参数前 32 字节内读取字长结果，并直接调用已定位的 `driverClose`；提取字段时还要求响应参数的正字长加载位移唯一。 |
+
+### B. 控制器与会话地址：6 项
+
+| 结果项 | 为什么需要／实际使用位置 | 怎样定位与检查 |
+|---|---|---|
+| `controllerVtable` | 这是数据地址，不是某个虚方法的槽位偏移。`findController` 用它与候选对象的 vptr 比较，找到唯一的活 `SubscriberSimController`；其入口也提供 `sender` 的搜索范围。 | 找到精确类型名 `23SubscriberSimController` 的 RTTI，跟随引用寻找 offset-to-top 为零、入口可执行的主虚表，并要求唯一。保存的是对象 vptr 使用的虚表地址点。 |
+| `sender` | 普通 `open` 路径调用这个控制器方法，传入**逻辑槽**、共享 AID／输出 vector。它发起高层交换，使 Hook 能捕获并保留驱动、通道和 vector。 | 遍历控制器虚表方法，寻找支持的 PC 相对 worker 引用；worker 必须是可执行函数起点，并引用已识别的 APDU 任务虚表。sender 和 worker 均须去重后唯一，不固定虚方法索引。 |
+| `worker` | 这是分析锚点，通道**不会直接调用或 Hook 它**。通过其函数体把 sender 与 APDU 任务关联起来，并推导状态 getter 和 SimInfo 字段。 | 找到唯一的“控制器方法 → worker → APDU 任务虚表”引用链，worker 必须是 CommCenter 内的函数起点。 |
+| `completion` | `completionHook` 在调用原函数后观察高层任务结束，配合阶段状态和信号量释放关闭等待，或报告打开失败。直接打开路径另有自己的保留回调。 | 通过 RTTI 找到 APDU 的 bool 完成闭包，检查其虚表入口，选取唯一含“读取第二参数所指 bool”的字节加载模式的函数，当前模式为 `LDRB w1, [x1]`。入口由指令推导，不固定 invoke 槽位。 |
+| `simState` | `slotInfo` 在选中的 `SimInfo` 上调用此 getter，再把结果交给 `isReady`，决定使用普通 sender 还是直接驱动打开路径。 | 在 worker 中找到目标经支持的 stub 还原后等于就绪判断导出的 `BL`；它前一条直接调用的目标必须可执行且唯一，该目标就是状态 getter。 |
+| `isReady` | 解释基带／SIM 状态，避免写死“某个状态枚举值等于就绪”。它决定 SIM 能否走普通路径，不是 profile 列表中的启用状态。 | 使用 `dlsym` 查找 `_ZN10subscriber10isSimReadyENS_8SimStateE`，作为 worker 调用链锚点；比较目标时跟随支持的 stub。缺少导出会使计划不完整。 |
+
+### C. 从指令推导的字段：6 个字节偏移
+
+| 结果项／相对哪个对象 | 为什么需要／实际使用位置 | 怎样定位与检查 |
+|---|---|---|
+| `encoderChannel`／编码 block `b` | `encodeHook` 从 `b + encoderChannel` 读取一个字节，只有活动通道匹配时才替换待发送 APDU。 | 在已识别编码 block 的参数来源追踪结果中收集正字节位移，要求恰好两个不同且连续的位移，取较小者为通道字段。旁边的指令字节只是校验伴随项，不单独输出一个结果。 |
+| `responseSlot`／响应 block `b` | `responseHook` 从 `b + responseSlot` 读取整数，与活动**硬件槽**比较，通过后才考虑复制响应。 | 收集响应 block 第一参数的正字长加载位移，要求唯一，再与两个字节捕获字段一起校验。 |
+| `responseChannel`／响应 block `b` | 响应 Hook 再检查此处的通道字节，避免仅因槽位相同就复制其他通道的响应。 | 响应 block 恰好有两个不同的字节位移；较小者必须等于 `responseSlot + 4`，另一项必须紧随其后。取较小者为通道字段；该规则不能适应任意捕获字段重排。 |
+| `qmiError`／QMI 结果参数 `r` | `qmiHook` 从 `r + qmiError` 读取整数，供 `transmit` 判断基带传输结果。它相对**回调的第二参数**，不是相对 block 对象。 | 识别 `qmi` 后，检查追踪到的参数 1 加载，要求唯一的正字长位移；回调分类还要求存在前 32 字节内的结果字加载以及关闭调用。 |
+| `simVector`／控制器 `iface` | `slotInfo` 和 `SHInferObjectLayout` 在 `iface + simVector` 读取 vector 的 begin/end，再按 shared-pointer 条目遍历 `SimInfo`。这是容器成员的位置，不是第一个 SIM 对象的地址。 | 在 worker 中寻找正偏移、非栈基址的 `LDP`，随后在邻近指令中找到通过第一个结果的零偏移指针加载，以及从该指针指向对象读取字长字段的操作；vector／槽位位移均须唯一。运行时再核对边界、编译后的 shared-pointer 步长和 1–16 个条目。 |
+| `logicalSlot`／某个 `SimInfo` | `slotInfo` 读取此整数，选出与 App 逻辑槽请求对应的节点；之后才读取该节点的硬件槽字段，交给驱动。 | 取上述“vector 条目 → 指向对象 → 槽位字加载”链末端的字加载位移，要求唯一。规则依赖邻近加载关系，不会把请求中的逻辑编号当成硬件槽。 |
+
+### D. 从活对象推导的字段：2 个字节偏移
+
+| 结果项／相对哪个对象 | 为什么需要／实际使用位置 | 怎样定位与检查 |
+|---|---|---|
+| `driverMember`／控制器 `iface` | SIM 未就绪时，直接打开路径从 `iface + driverMember` 读取驱动指针，再调用 `driverStart`。普通 sender 路径则从 `commandHook` 捕获驱动。 | 从控制器 vptr 后开始，按指针对齐扫描前 512 字节；跟随可读对象的 vptr/typeinfo/name，要求恰好一个精确 RTTI 为 `N10subscriber19EURSimCommandDriverE` 的对象。精确匹配排除 shared-pointer 控制块。保存成员位移，不保存本次驱动地址作为常量。 |
+| `hardwareSlot`／某个 `SimInfo` | 把选中逻辑 SIM 节点映射成驱动的硬件槽。驱动打开／发送／关闭及响应槽位匹配使用这个值，它不一定等于 App 的逻辑编号。 | 从已发现的 SimInfo vector 取节点，在各对象前 128 字节扫描对齐整数字段，排除 `logicalSlot`；要求候选字段在各节点中取值为 1–3 且互不相同，并且字段候选唯一。这是相关性启发式；存在歧义或不可读数据时不使用该布局。 |
+
+选择路径可以概括如下；这是现有读取过程的关系说明，不是可直接运行的独立 API：
+
+```text
+registryMap -> findController(controllerVtable) -> iface
+iface + simVector -> shared-pointer 条目 -> SimInfo
+SimInfo + logicalSlot -> 选出请求的逻辑节点
+SimInfo + hardwareSlot -> 驱动使用的硬件槽值
+isReady(simState(SimInfo)) -> 普通 sender 或直接 driverStart 路径
+iface + driverMember -> 直接路径所需的驱动指针
+```
+
+`qmiError`、APDU 的 SW1/SW2、解码后的 ES10b 安装 `errorReason` 是不同层次的错误。定位基带结果字段，不等于找到一个“配置已安装”的标记；安装结果由 LPA/libeuicc 层解码。
+
+### E. 不计入上述 20 项的导出与临时锚点
+
+| 锚点 | 用途 | 定位／处理方式 |
+|---|---|---|
+| `getter` | Hook Registry 的服务 map getter，捕获 CommCenter 正常使用时的返回指针，为活控制器搜索提供根，不需要固定 Registry 成员偏移。 | 尝试 `_ZNK8Registry13getServiceMapEv`，按实际所属加载镜像验证可执行范围及函数起点或精确导出边界；不存在或无效时使用验证通过的 mutable getter。所属镜像通过 `registryImage` 报告，不要求一定属于 CommCenter 主程序。 |
+| `mutableGetter` | 非 const 重载独立存在且地址不同时，也通过它捕获同一个 map；至少一个 getter 验证通过即可。 | 查找 `_ZN8Registry13getServiceMapEv` 并在其实际镜像内验证；只有与最终选择的 `getter` 不同时才单独安装 Hook。 |
+| APDU 任务虚表 | 把未具名 worker 与目标操作关联起来，是分析锚点，不是通道直接调用的入口，也不是固定对象偏移。 | RTTI 限定在包含 `sendSimSingleApduCommand_sync` 的 APDU 闭包中，选取带 `Fvv` 的非嵌套 `__funcIZN…` 形式，要求唯一，再匹配 worker 对该虚表的引用。 |
+| bool 完成闭包虚表 | 将 `completion` 的搜索范围限定到相关回调实现。 | 在同一个 APDU RTTI 家族中，选取嵌套 `__funcIZZN…` 形式并要求唯一，再在其虚表入口中应用 bool 引用加载规则。 |
+
+`registryMap`、`iface`、`driver`、通道号、`responseVector` 和保留的回调，都是运行时捕获或读取的活句柄，不是额外的可移植数值偏移。旧的 map／节点值／typeinfo 引用偏移，以及固定控制器／invoke 虚表索引，已不再是配置输入；它们由有界遍历、RTTI 和代码引用取代。
 
 ## 失败处理与诊断
 
