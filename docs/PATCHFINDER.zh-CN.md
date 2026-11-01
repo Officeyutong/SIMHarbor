@@ -14,7 +14,7 @@ SIMHarbor 的 Patchfinder 用于定位 CommCenter 通道依赖的私有入口和
 flowchart TD
     A[已加载的 CommCenter 与驱动] --> B[Mach-O 元数据和驱动符号]
     B --> C[Capstone、RTTI 与引用模式]
-    C --> D[18 项代码解析计划]
+    C --> D[类型化代码解析计划]
     D --> E{签名、适配器布局与计划通过?}
     E -- 否 --> F[输出诊断报告]
     E -- 是 --> G[安装 Hook 并捕获 Registry map]
@@ -42,7 +42,7 @@ flowchart TD
 
 `driverSymbols` 动态绑定 CoreSymbolication，为当前进程创建 symbolicator，然后取得驱动镜像对应的 symbol owner。它只枚举该模块，保留名称包含 `sendSimApdu`、地址位于驱动可执行范围且属于函数起点的符号。
 
-核心进一步筛选 `subscriber::EURSimCommandDriver` 的反修饰名称，将 `sendSimApdu_start`、`sendSimApdu_command`、`sendSimApdu_close` 三个普通方法，与命令方法内的匿名 block 区分开来。每个锚点都必须只有一个不同的候选地址。
+核心进一步筛选 `subscriber::EURSimCommandDriver` 的反修饰名称，将 `sendSimApdu_start`、`sendSimApdu_command`、`sendSimApdu_close` 三个普通方法，与命令方法内的匿名 block 区分开来。start 和 close 锚点各自必须唯一；缺少独立 command 方法时使用下文的原生 continuation 路径。
 
 三个具名入口还会比较完整的解修饰参数签名，包括槽位类型、vector 引用和回调/block 参数，比较时忽略空白差异。这些检查不等于证明私有 ABI 的所有细节。当前驱动依赖私有符号缓存，仅查导出表不能满足要求。生产路径不初始化 Gum 的全进程符号缓存，也不需要 GumJS 或 Frida server。
 
@@ -52,13 +52,13 @@ ARM64 解码使用固定版本 Frida Gum devkit 中的 Capstone 5。初始化时
 
 `loads` 通过部分寄存器移动跟踪参数来源，记录选定的内存加载，并在遇到 `BL` 后清除调用者保存寄存器的来源。`refs` 还原部分 `ADR`/`ADRP` 加 `ADD` 的地址引用；小型 stub 识别器用于跟随支持的间接跳转，匹配导出的就绪判断函数。
 
-这是有界指令模式分析，不是完整的控制流图、符号执行或与编译器无关的数据流分析。当前函数解码要求存在下一个函数边界，且长度不超过 64 KiB。
+卡槽遍历采用有界控制流／数据流分析，驱动引用和回调使用较窄的指令证据；这不是与编译器无关的符号执行引擎。当前函数解码要求存在下一个函数边界，且长度不超过 64 KiB。
 
 匿名命令 block 由多项特征共同区分：
 
 | 候选 | 当前规则使用的依据 |
 |---|---|
-| 编码回调 | 从第二个参数读取 vector 尾部指针对，并从 block 加载相邻字节捕获字段。 |
+| 编码回调 | 从第二个参数读取 vector 尾指针，并加载相邻字节捕获字段；允许一层受支持的直接辅助函数。 |
 | 响应回调 | 从第二个参数读取 vector 范围指针对，存在字长槽位字段，以及符合相对布局的通道/指令字节字段。 |
 | QMI 结果回调 | 从响应参数读取字长结果字段，并直接调用已定位的关闭方法。 |
 
@@ -73,14 +73,14 @@ RTTI 扫描识别具体的 `SubscriberSimController` 类型，以及 APDU 相关
 worker 内还有两项推导：
 
 - 导出的 `subscriber::isSimReady` 判断之前的那次调用，用于识别 SimInfo 状态读取函数。匹配就绪函数时会跟随支持的认证跳转 stub。
-- vector 边界指针对加载、shared-pointer 节点加载以及字长槽位加载，给出 SimInfo vector 和逻辑槽字段偏移。
+- 通过有界控制流／数据流分析，追踪 vector 边界、非空分支、逻辑槽相等路径和状态 getter 实参；从循环回边提取步长。游标直接作为对象代表内联存储，先加载指针则代表间接条目。每个起点最多分析 4096 个状态、向前 512 条指令；预算耗尽时拒绝解析。
 
 关系示意：
 
 ```text
 控制器虚方法 -> worker 引用 -> 指定 APDU 任务虚表
 worker -> SimInfo 状态函数 -> 导出的就绪判断
-worker -> vector 边界 -> shared-pointer 节点 -> 逻辑槽字段
+worker -> vector 边界 -> 内联对象／间接条目 -> 逻辑槽字段
 ```
 
 这些关系描述当前实现的规则，不代表所有编译器都会生成相同形式。
@@ -91,12 +91,12 @@ ABI 和代码计划通过后，扩展 Hook 导出的 Registry getter，在 CommC
 
 `findController` 检查根部的 32 个机器字，沿可能的 next-pointer 链前进，限制每条链最多 512 步、总共访问最多 2,048 个节点。它读取有界节点字段，只接受一个与已解析控制器虚表一致的不同对象。这样去掉了原先固定的 map、节点值和 typeinfo 引用偏移，但仍假设服务 map 中存在这种可达指针链。
 
-活对象读取通过 [RuntimeObjects.hpp](../tweak/RuntimeObjects.hpp) 中的 `MemoryReader`、`ControllerView`、`SharedPointerVectorView` 和 `SimInfoView` 完成。`SHMakeControllerView` 提供已发现的字段偏移和编译后的 shared-pointer 步长。视图只复制可平凡复制的快照，不把外部内存转换为拥有所有权的 STL 对象，也不修改引用计数。读取失败或边界无效时返回 `nullopt`。这些封装不会延长目标对象的生命周期、让并发修改具有原子性，或保证后续私有 getter 调用仍然安全。
+活对象读取通过 [RuntimeObjects.hpp](../tweak/RuntimeObjects.hpp) 中的 `MemoryReader`、`ControllerView`、`SimContainerView` 和 `SimInfoView` 完成。`SHMakeControllerView` 提供已发现的字段偏移和已发现的存储方式、条目步长和指针位移。视图只复制可平凡复制的快照，不把外部内存转换为拥有所有权的 STL 对象，也不修改引用计数。读取失败或边界无效时返回 `nullopt`。这些封装不会延长目标对象的生命周期、让并发修改具有原子性，或保证后续私有 getter 调用仍然安全。
 
 `SHInferObjectLayout` 再推导两项字段：
 
 1. **驱动成员位置：** 按指针对齐扫描控制器前 512 字节。指向对象的 RTTI 必须精确等于具体驱动类型 `N10subscriber19EURSimCommandDriverE`。shared-pointer 控制块的类型名也可能包含驱动类名，因此不能只做子串匹配。
-2. **硬件槽字段：** 按本次编译的 `shared_ptr` 步长读取已发现的 SimInfo vector；当前接受 1–16 个节点。扫描各对象前 128 字节中的对齐整数字段，排除逻辑槽字段，只接受一个在各节点间取不同值、且值域为 1–3 的候选字段。
+2. **硬件槽字段：** 按已发现的条目步长及内联／间接存储方式读取已发现的 SimInfo vector；当前接受 1–16 个节点。扫描各对象前 128 字节中的对齐整数字段，排除逻辑槽字段，只接受一个在各节点间取不同值、且值域为 1–3 的候选字段。
 
 这些字段关联是启发式规则，不能单独证明新设备的卡槽语义。初始化期间可能出现多个候选，此时通道拒绝使用该布局，等待之后重新检查。逻辑槽与硬件槽始终分别处理。
 
@@ -110,7 +110,7 @@ ABI 和代码计划通过后，扩展 Hook 导出的 Registry getter，在 CommC
 | 导出符号 | `isReady` |
 | 活对象检查 | `driverMember`、`hardwareSlot` |
 
-前四行组成 18 项代码/镜像解析计划，最后一行增加 2 项活对象字段。Registry getter 也通过导出符号定位，不计入这 20 项。
+解析计划另含 `simStorage`（1 内联，2 间接）、`simEntryStride` 和 `simPointeeOffset`。命令被内联且没有方法符号时，使用 `commandContinuation` 替代 `driverCommand`。Registry getter 独立通过导出定位。
 
 ## 逐项说明：为什么要找、在哪里用、怎样找到
 
@@ -148,8 +148,12 @@ ABI 和代码计划通过后，扩展 Hook 导出的 Registry getter，在 CommC
 | `responseSlot`／响应 block `b` | `responseHook` 从 `b + responseSlot` 读取整数，与活动**硬件槽**比较，通过后才考虑复制响应。 | 收集响应 block 第一参数的正字长加载位移，要求唯一，再与两个字节捕获字段一起校验。 |
 | `responseChannel`／响应 block `b` | 响应 Hook 再检查此处的通道字节，避免仅因槽位相同就复制其他通道的响应。 | 响应 block 恰好有两个不同的字节位移；较小者必须等于 `responseSlot + 4`，另一项必须紧随其后。取较小者为通道字段；该规则不能适应任意捕获字段重排。 |
 | `qmiError`／QMI 结果参数 `r` | `qmiHook` 从 `r + qmiError` 读取整数，供 `transmit` 判断基带传输结果。它相对**回调的第二参数**，不是相对 block 对象。 | 识别 `qmi` 后，检查追踪到的参数 1 加载，要求唯一的正字长位移；回调分类还要求存在前 32 字节内的结果字加载以及关闭调用。 |
-| `simVector`／控制器 `iface` | `slotInfo` 和 `SHInferObjectLayout` 在 `iface + simVector` 读取 vector 的 begin/end，再按 shared-pointer 条目遍历 `SimInfo`。这是容器成员的位置，不是第一个 SIM 对象的地址。 | 在 worker 中寻找正偏移、非栈基址的 `LDP`，随后在邻近指令中找到通过第一个结果的零偏移指针加载，以及从该指针指向对象读取字长字段的操作；vector／槽位位移均须唯一。运行时再核对边界、编译后的 shared-pointer 步长和 1–16 个条目。 |
-| `logicalSlot`／某个 `SimInfo` | `slotInfo` 读取此整数，选出与 App 逻辑槽请求对应的节点；之后才读取该节点的硬件槽字段，交给驱动。 | 取上述“vector 条目 → 指向对象 → 槽位字加载”链末端的字加载位移，要求唯一。规则依赖邻近加载关系，不会把请求中的逻辑编号当成硬件槽。 |
+| `simVector`／控制器 `iface` | `slotInfo` 和 `SHInferObjectLayout` 在 `iface + simVector` 读取 vector 的 begin/end，再按发现的内联／间接条目遍历 `SimInfo`。这是容器成员的位置，不是第一个 SIM 对象的地址。 | 寻找正偏移、非栈基址的边界对加载，验证非空循环分支、逻辑槽相等路径及状态 getter 的对象身份；从回边推导步长。运行时核对边界、描述符范围及 1–16 个条目，收集对象地址后再次核对边界。 |
+| `logicalSlot`／某个 `SimInfo` | `slotInfo` 读取此整数，选出与 App 逻辑槽请求对应的节点；之后才读取该节点的硬件槽字段，交给驱动。 | 从已验证的相等路径取得字加载位移，并关联到状态 getter 的对象实参。内联字段必须处于条目范围内；零偏移合法，不表示发现失败。 |
+| `simStorage`／容器描述符 | 让 `SimContainerView` 选择内联地址或间接指针读取；1／2 是存储方式，不是字节偏移。 | 追踪状态 getter 的对象来自循环游标，还是条目内加载的指针；歧义时拒绝。 |
+| `simEntryStride`／容器描述符 | 遍历条目并限制内联字段范围，不依赖扩展编译时的 STL 大小。 | 从通向边界比较的回边恢复游标增量，要求唯一、正值、对齐且未超过分析上限。 |
+| `simPointeeOffset`／间接条目 | 按条目内偏移读取对象指针，不访问拥有所有权的 shared-pointer 控制块。 | 追踪传给状态 getter 的指针加载，要求指针字位于步长范围内；零偏移合法。 |
+| `commandContinuation`／原生 block invoke | 复用前核对复制的打开成功 block，绝不转换成旧命令方法签名调用。 | 精确的命令回调所属签名、多个回调引用，以及调用已验证 `driverStart` 的上层函数；运行时再次核对实际 invoke 指针。 |
 
 ### D. 从活对象推导的字段：2 个字节偏移
 
@@ -204,8 +208,14 @@ iface + driverMember -> 直接路径所需的驱动指针
 
 卡槽管理跳过未分配的 SimInfo 节点（逻辑编号 ≤ 0），保留已分配但未就绪的节点。占位节点仍参与布局发现，不应硬编码排除某个硬件编号；逻辑编号也不固定为 1/2。路由、EID 保护和验证范围见[多卡槽文档](MULTI_SLOT.zh-CN.md)。
 
-### 已发现的内联容器兼容缺口
+### 自适应布局与原生 continuation（1.3.22）
 
-对 iPhone 12 mini 的 iOS 16.5.1（20F75）镜像进行离线文件模型重放时，驱动签名校验通过，解析到最后的 worker 布局阶段后，当前 shared-pointer 模式找不到候选。观察到的循环从控制器 `+0xf8` 读取边界，直接从游标 `+0x4` 读取字长字段，并按 `0x138` 前进；匹配后的游标直接传给状态 getter，说明 SimInfo 在容器中内联存储。已知 17.2.1 样本则先从 shared-pointer 条目解引用，再读取逻辑编号 `+0x24`。
+目前已收集的六个样本（16.5.1、17.2.1、17.6、18.0、18.6、26.0.1）均可通过文件模型静态重放。16.5.1 样本推导出内联存储、成员 `+0xf8`、步长 `0x138`、逻辑字段 `+0x4`；其余样本为间接条目、成员 `+0xa8`、步长 `0x10`、逻辑字段 `+0x24`。这些都是分析结果，不是按版本选择的常量。就绪判断始终调用目标的导出函数，不复制其状态枚举或位掩码。
 
-这些数值只描述样本，不是按系统版本选择的常量。兼容内联形式需要同时发现条目存储方式和步长，再调整借用容器视图及活字段校验；只替换 `simVector` 会保留错误的指针遍历。当前适配器尚未实现这一路径。[主机重放工具](../research/firmware/README.md#file-model-resolver-replay) 通过重定位模型复现定位缺口，不执行 iOS 指令；它不验证运行时符号化、hook、对象生命周期或卡片通信。
+18.0、18.6 和 26.0.1 样本将命令构造内联到原生“打开成功”block。没有命令方法符号时，要求命令回调所属函数签名完全匹配、某一入口引用多个不同命令回调，且引用该入口的调用者同时调用已验证的 start 方法。结果写入 `commandContinuation`。运行时 `startHook` 核对实际 block 的 invoke 指针，再复制原生 Objective-C block 以保留其真实捕获对象，同时记录分配的通道。后续交换以硬件槽／通道调用这个 block，绝不套用已消失的方法 ABI；显式关闭完成后释放 block。
+
+当前 continuation 适配器需要 SIM 就绪，控制器才能创建该原生 block。未就绪时在开通道前拒绝；这一限制仍需进一步适配。存在独立命令方法的固件保留直接访问未就绪槽位的路径。26.0.1 的 vector 尾指针和字节捕获证据可跨一层直接辅助函数追踪，不递归分析。
+
+静态重放不执行目标代码，也不证明能完成配置管理。运行时符号化、hook 和卡片通信仍需真机验证；六个样本不覆盖 iOS 14–26.0.1 的所有设备／构建。未知、歧义布局继续输出诊断。[主机重放工具](../research/firmware/README.md#file-model-resolver-replay)和[合成遍历测试](../tests/test_sim_container.cpp)用于后续验证。
+
+活对象硬件槽字段允许位于偏移零；是否完成定位由显式的对象发现状态决定，不将零偏移误认为缺失。

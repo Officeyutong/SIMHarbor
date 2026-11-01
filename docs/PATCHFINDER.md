@@ -14,7 +14,7 @@ The transport call flow, callback ownership and state transitions are explained 
 flowchart TD
     A[Loaded CommCenter and driver images] --> B[Mach-O metadata and driver symbols]
     B --> C[Capstone, RTTI and reference patterns]
-    C --> D[18-value analysis plan]
+    C --> D[Typed analysis plan]
     D --> E{Signatures, adapter layout and plan match?}
     E -- No --> F[Diagnostic report]
     E -- Yes --> G[Install hooks and capture Registry map]
@@ -42,7 +42,7 @@ Using loaded addresses makes the analysis follow ASLR. There is no table of old 
 
 `driverSymbols` dynamically binds CoreSymbolication, creates a symbolicator for the current task and obtains the symbol owner for the driver image. It enumerates only that owner, retaining `sendSimApdu` names whose addresses are executable function starts in the driver.
 
-The core then filters demangled names for `subscriber::EURSimCommandDriver` and separates the named `sendSimApdu_start`, `sendSimApdu_command` and `sendSimApdu_close` methods from anonymous blocks belonging to the command method. Each anchor must have one distinct candidate.
+The core then filters demangled names for `subscriber::EURSimCommandDriver` and separates the named `sendSimApdu_start`, `sendSimApdu_command` and `sendSimApdu_close` methods from anonymous blocks belonging to the command method. The start and close anchors must each have one distinct candidate. A missing command method uses the native-continuation path described below.
 
 The three named entry points also undergo complete demangled parameter-signature comparison, including the slot type, vector references and callback/block parameters, after whitespace normalization. These checks do not prove every aspect of the private ABI. Availability of private cached symbols is a dependency; an export-only lookup is insufficient for the current driver. The production path does not initialize Gum's process-wide symbol cache or require GumJS/Frida server.
 
@@ -52,13 +52,13 @@ Capstone 5 comes from the pinned Frida Gum devkit. The code explicitly registers
 
 `loads` follows simple argument origins through register moves, records selected memory loads and discards caller-saved origins across `BL`. `refs` reconstructs selected `ADR`/`ADRP` plus `ADD` references. A small stub recognizer follows supported indirect branches when matching the exported readiness predicate.
 
-This is bounded instruction-pattern analysis, not a complete control-flow graph, symbolic execution engine or compiler-independent dataflow analysis. Current functions need a following function boundary and must fit within a 64 KiB decoding limit.
+The slot traversal uses bounded control-flow/dataflow analysis; driver references and callbacks use narrower instruction evidence. This is not a compiler-independent symbolic execution engine. Current functions need a following function boundary and must fit within a 64 KiB decoding limit.
 
 The anonymous command blocks are distinguished using several observations together:
 
 | Candidate | Evidence used by the current rule |
 |---|---|
-| Encoder | A vector-tail pair load from the second argument and an adjacent byte-capture pair in the block. |
+| Encoder | Vector-tail loads from the second argument and adjacent byte captures, either directly or through one supported direct helper level. |
 | Response | A vector-span pair load from the second argument, a word-sized slot capture and the expected adjacent channel/instruction byte captures. |
 | QMI result | A word load from the response argument together with a direct call to the already identified close method. |
 
@@ -73,14 +73,14 @@ The resolver walks controller virtual methods and looks for a PC-relative refere
 Inside the worker:
 
 - The call immediately before the exported `subscriber::isSimReady` predicate identifies the SimInfo state getter. Supported authenticated stubs are followed for the predicate match.
-- A vector-bounds pair load, followed by a shared-pointer node load and a word-sized slot load, supplies the SimInfo vector and logical-slot offsets.
+- A bounded forward control-flow analysis follows vector bounds, the nonempty branch, logical-slot equality and the object passed to the state getter. A loop backedge supplies the entry stride. A direct cursor argument means inline objects; a loaded pointee means indirect entries. Require one complete layout proof. Each seed is capped at 4,096 states and 512 forward instructions; budget exhaustion rejects discovery.
 
 A schematic relationship is:
 
 ```text
 controller virtual method -> worker reference -> named APDU task vtable
 worker -> SimInfo state getter -> exported readiness predicate
-worker -> vector bounds -> shared-pointer node -> logical-slot field
+worker -> vector bounds -> inline object / indirect entry -> logical-slot field
 ```
 
 These are concrete relationships in the current implementation, not a claim that every compiler will emit equivalent patterns.
@@ -91,12 +91,12 @@ Once runtime signature/layout checks and the code plan pass, hooks on the export
 
 `findController` examines 32 root words and follows potential next-pointer chains, with caps of 512 steps per chain and 2,048 visited nodes overall. It inspects bounded node words and accepts only one distinct object matching the resolved controller vtable. This removes the previous fixed map, node-value and typeinfo-reference offsets, while retaining assumptions about the map's reachable pointer-chain shape.
 
-Live-object reads use `MemoryReader`, `ControllerView`, `SharedPointerVectorView` and `SimInfoView` in [RuntimeObjects.hpp](../tweak/RuntimeObjects.hpp). `SHMakeControllerView` supplies discovered field offsets and the compiled shared-pointer stride. The views copy trivially-copyable snapshots without casting foreign memory to owning STL objects or modifying reference counts. Failed reads and invalid bounds return `nullopt`. They do not retain the target objects, make concurrent mutations atomic, or guarantee that a later private getter call remains safe.
+Live-object reads use `MemoryReader`, `ControllerView`, `SimContainerView` and `SimInfoView` in [RuntimeObjects.hpp](../tweak/RuntimeObjects.hpp). `SHMakeControllerView` supplies discovered field offsets and the discovered storage representation, entry stride and pointee offset. The views copy trivially-copyable snapshots without casting foreign memory to owning STL objects or modifying reference counts. Failed reads and invalid bounds return `nullopt`. They do not retain the target objects, make concurrent mutations atomic, or guarantee that a later private getter call remains safe.
 
 `SHInferObjectLayout` derives two more fields:
 
 1. **Driver member:** inspect pointer-aligned members within the first 512 bytes of the controller. The pointee must have the exact concrete driver RTTI name `N10subscriber19EURSimCommandDriverE`. A shared-pointer control block can contain the driver name in its own RTTI, so substring matching would create false candidates.
-2. **Hardware slot:** read the discovered SimInfo vector using the compiled `shared_ptr` stride. Current rules accept 1–16 nodes. Scan aligned integer fields within their first 128 bytes, excluding the logical-slot field; accept one field whose values are distinct hardware-slot candidates in the range 1–3 across the nodes.
+2. **Hardware slot:** read the discovered SimInfo vector using the discovered entry stride and inline/indirect representation. Current rules accept 1–16 nodes. Scan aligned integer fields within their first 128 bytes, excluding the logical-slot field; accept one field whose values are distinct hardware-slot candidates in the range 1–3 across the nodes.
 
 These field correlations are heuristics, not proof of slot semantics on a new device. During initialization there may be several candidates; the transport rejects the layout until a later inspection resolves it uniquely. Logical and hardware slots remain separate values.
 
@@ -106,11 +106,11 @@ These field correlations are heuristics, not proof of slot semantics on a new de
 |---|---|
 | Driver symbols and block analysis | `driverStart`, `driverCommand`, `driverClose`, `encoder`, `response`, `qmi` |
 | Driver load displacements | `encoderChannel`, `responseSlot`, `responseChannel`, `qmiError` |
-| RTTI, references and worker instructions | `controllerVtable`, `sender`, `worker`, `completion`, `simState`, `simVector`, `logicalSlot` |
+| RTTI, references and worker instructions | `controllerVtable`, `sender`, `worker`, `completion`, `simState`, `simVector`, `logicalSlot`, `simStorage`, `simEntryStride`, `simPointeeOffset` |
 | Export lookup | `isReady` |
 | Live-object inspection | `driverMember`, `hardwareSlot` |
 
-The first four rows form the 18-value code/image plan; the last row adds two live-object fields. Registry getters are also found through exports, outside this count.
+The plan also publishes `simStorage` (1 inline, 2 indirect), `simEntryStride` and `simPointeeOffset`. A stripped/inlined command uses `commandContinuation` instead of `driverCommand`. Registry getters are found separately through exports.
 
 ## Each result: purpose, consumer and discovery
 
@@ -148,8 +148,12 @@ Numerical observations for the tested image are in the [example discovery result
 | `responseSlot` / response block `b` | `responseHook` reads an integer at `b + responseSlot` and compares it with the active **hardware** slot before copying response bytes. | Collect word-sized positive loads from the response block argument and require a unique displacement. Validate it together with the two byte captures. |
 | `responseChannel` / response block `b` | The response hook also reads the channel byte at this offset, so an unrelated channel's response is not copied merely because the slot matches. | The response block must have exactly two distinct byte-capture displacements. The first must equal `responseSlot + 4`, and the second must immediately follow it; use the first as the channel field. Arbitrary capture-field reordering is not supported by this rule. |
 | `qmiError` / QMI result argument `r` | `qmiHook` reads an integer at `r + qmiError` and makes it available to `transmit`'s transport-result check. The offset is relative to the **second callback argument**, not to the block object. | After recognizing `qmi`, inspect its tracked loads from argument 1 and require one positive word-load displacement. The callback classifier additionally requires a result-word load in the first 32 bytes and a close call. |
-| `simVector` / controller `iface` | `slotInfo` and `SHInferObjectLayout` read the vector's begin/end pointers at `iface + simVector`, then walk shared-pointer entries to reach `SimInfo` objects. This is a container-member location, not the address of the first SIM object. | In the worker, find a positive non-stack `LDP` displacement, a nearby zero-displacement pointer load through its first result, and a following word load from that pointee. Require a unique vector/slot displacement pair. Runtime checks validate bounds, compiled shared-pointer stride and a 1–16 entry count. |
-| `logicalSlot` / a `SimInfo` object | `slotInfo` reads this integer to select the node matching the app's logical-slot request. Only after this match does it read that node's hardware-slot field for the driver. | Take the word-load displacement at the end of the vector-entry → pointee → slot-load chain above and require one distinct value. The pattern constrains the nearby load sequence; it does not infer a hardware-slot number from the request. |
+| `simVector` / controller `iface` | `slotInfo` and `SHInferObjectLayout` read the vector's begin/end pointers at `iface + simVector`, then use the discovered inline/indirect entries to reach `SimInfo` objects. This is a container-member location, not the address of the first SIM object. | Find a positive non-stack bounds-pair load, then prove the loop, nonempty branch, slot match and state-getter object identity. Infer stride from the backedge. Runtime checks validate bounds, descriptor extents and a 1–16 entry count, then reread bounds after collecting addresses. |
+| `logicalSlot` / a `SimInfo` object | `slotInfo` reads this integer to select the node matching the app's logical-slot request. Only after this match does it read that node's hardware-slot field for the driver. | Take the word displacement in the validated equality path and relate its base to the state-getter argument. Inline fields must fit inside the discovered stride. Zero is a valid field displacement; it does not mean discovery failed. |
+| `simStorage` / container descriptor | Select inline entry addresses or indirect pointee reads in `SimContainerView`. Values are 1/2, not byte offsets. | Determine whether the state-getter object is the loop cursor or a pointer loaded from an entry. Reject ambiguous representations. |
+| `simEntryStride` / container descriptor | Advance entries and bound inline object fields, independently of the extension's compiled STL sizes. | Recover the cursor increment on the backedge to the bounds comparison; require one positive, aligned stride within the analysis limit. |
+| `simPointeeOffset` / indirect entry | Read the object word at this entry-relative offset; never touch an owning shared-pointer control block. | Track the pointer load that supplies the state-getter object; require its word to fit inside the discovered stride. Zero is valid. |
+| `commandContinuation` / native block invoke | Verify the copied open-success block before reuse. Never cast this entry to the old command-method signature. | Exact command callback owner signatures, multiple callback references and a parent that calls validated `driverStart`; verify the actual invoke pointer at runtime. |
 
 ### D. Fields recovered from live objects — 2 byte offsets
 
@@ -162,7 +166,7 @@ The selection path can be summarized as follows; it describes the existing reads
 
 ```text
 registryMap -> findController(controllerVtable) -> iface
-iface + simVector -> shared-pointer entries -> SimInfo
+iface + simVector -> discovered inline / indirect entries -> SimInfo
 SimInfo + logicalSlot -> select the requested logical node
 SimInfo + hardwareSlot -> driver hardware-slot value
 isReady(simState(SimInfo)) -> ordinary sender or direct driverStart path
@@ -204,8 +208,14 @@ This article remains repository documentation. The app bundles only its bilingua
 
 Slot management skips unassigned SimInfo nodes (logical ID ≤ 0), while retaining assigned inactive slots. Such placeholder nodes remain relevant to layout discovery; do not hardcode a hardware ID exclusion. Logical IDs are discovered rather than restricted to 1/2. See [multiple slots](MULTI_SLOT.md) for routing, EID protection and test scope.
 
-### Known inline-container gap
+### Adaptive layouts and native continuations (1.3.22)
 
-Offline file-model replay of the iPhone 12 mini iOS 16.5.1 (20F75) image validates driver signatures and reaches the final worker-layout stage, where the current shared-pointer pattern finds no candidate. The observed loop loads bounds at controller `+0xf8`, reads a word directly from the cursor at `+0x4`, and advances the cursor by `0x138`; the matched cursor is passed to the state getter. This is inline SimInfo storage. The established 17.2.1 sample instead dereferences shared-pointer entries before reading logical ID `+0x24`.
+File-model replay now resolves all six collected samples: 16.5.1, 17.2.1, 17.6, 18.0, 18.6 and 26.0.1. The 16.5.1 sample yields inline storage, member `+0xf8`, stride `0x138` and logical field `+0x4`; the other samples yield indirect entries, member `+0xa8`, stride `0x10` and logical field `+0x24`. These are derived observations, never version-selected constants. Readiness always uses the target's exported predicate rather than a copied state enum/bitmask.
 
-These are observations for those samples, not version-based constants. Supporting the inline case requires discovering both entry representation and stride, then adapting the borrowed container view and live-field validation. Updating only `simVector` would retain the wrong pointer traversal. The current adapter has not yet implemented this path. The [host replay tools](../research/firmware/README.md#file-model-resolver-replay) model fixups and reproduce the discovery gap without executing iOS code; they do not validate runtime symbolication, hooks, object lifetime or card communication.
+The 18.0, 18.6 and 26.0.1 samples inline command construction into a native open-success block. With no method symbol, discovery requires exact command callback owner signatures, an entry referencing multiple distinct command callbacks, and a caller that references that entry and calls the validated start method. The plan publishes `commandContinuation`. `startHook` verifies the actual block's invoke pointer against it, copies the original Objective-C block to retain its native captures, and records the allocated channel. Later exchanges invoke that copied block with the validated hardware slot/channel. They never call the continuation using the removed method's ABI. Explicit close releases the block after completion.
+
+The current continuation adapter requires a ready SIM so that the controller can create its native open-success block. An inactive SIM on that path is rejected before opening; supporting it needs further work. Firmware with an independent command method retains the direct inactive-slot path. On 26.0.1, one direct helper level supplies outlined vector-tail loads and byte-capture evidence; no recursive analysis is attempted.
+
+Static replay does not execute target code or establish successful profile management. Only device tests validate symbolication, hooks and card communication. The collected samples do not cover every iOS 14–26.0.1 device/build. Unknown or ambiguous layouts continue to return diagnostics. [Host replay tools](../research/firmware/README.md#file-model-resolver-replay) and [synthetic traversal tests](../tests/test_sim_container.cpp) support further validation.
+
+A live hardware-slot field may be at byte zero. Explicit object-discovery completion determines whether offsets are usable; zero is not treated as a missing field.

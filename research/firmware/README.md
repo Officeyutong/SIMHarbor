@@ -81,3 +81,9 @@ The iPhone 12 mini 16.5.1 (20F75) sample reproduces a static failure at SimInfo-
 待识别出报告缺口后，再按需获取单个镜像、对目标二进制去重、运行函数级差异及静态 resolver 回归；这些步骤尚未包含在当前采集器中。静态通过也不等于真机兼容。
 
 按需下载流程要求先保存明确的资源清单与 SHA256，再通过 aria2 四文件并行、每文件八连接下载；不会自动扩展至全部固件。提取阶段校验 BuildManifest，以只读方式挂载 APFS，并回收临时镜像。`macho_inspection.py` 生成 UUID、代码哈希、函数边界、APDU／就绪函数签名及反汇编。代码哈希差异不等于行为差异；当前检查器也不自动推导私有成员偏移。
+
+### Adaptive resolver replay (1.3.22)
+
+The six collected samples now resolve with inferred container descriptors: the 16.5.1 sample uses inline entries; 17.2.1, 17.6, 18.0, 18.6 and 26.0.1 use indirect entries. No OS/device selector supplies those layouts. The newer three samples require the native open-success continuation path, and 26.0.1 additionally requires one level of outlined-helper evidence. The continuation path currently requires a ready SIM. Static success does not test native block lifetimes or establish working profile management on those devices. See the bilingual [patchfinder documentation](../../docs/PATCHFINDER.md).
+
+With Clang 22 and Capstone 5 headers/library installed, run `python3 tests/check_sim_container.py` from the repository root for synthetic traversal tests without any firmware captures. `tests/check_resolver.py` also runs them after private fixture replay.

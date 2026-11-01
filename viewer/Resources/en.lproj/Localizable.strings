@@ -312,3 +312,5 @@
 "Submitting operator notifications…" = "Submitting operator notifications…";
 
 "The profile operation completed, but some operator notifications are pending. Open Notifications to retry." = "The profile operation completed, but some operator notifications are pending. Open Notifications to retry.";
+
+"This firmware requires a ready SIM to retain its native command callback. Enable a profile using another device first." = "This firmware requires a ready SIM to retain its native command callback. Enable a profile using another device first.";

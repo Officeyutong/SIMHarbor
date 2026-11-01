@@ -26,7 +26,7 @@
 
 ## 实现方式
 
-[Apdu.mm](../tweak/Apdu.mm) 的 `availableSlots` 枚举 [RuntimeObjects.hpp](../tweak/RuntimeObjects.hpp) 中不持有所有权的 `ControllerView`／`SimInfoView`。这些视图使用运行时发现的偏移，通过带检查的 `MemoryReader` 复制类型明确的字段快照；容器边界检查和 shared-pointer 条目遍历由单独的视图处理。[SlotRouting.hpp](../tweak/SlotRouting.hpp) 过滤未分配逻辑编号、拒绝有歧义的逻辑／硬件映射，并排序已分配卡槽。`filterAndValidateAssignedSlots` 返回 `optional<vector<Slot>>`：`nullopt` 表示映射无效，空 vector 表示没有已分配卡槽。已分配但未就绪的槽仍然显示；界面不写死“只能选 1 和 2”，当前驱动适配器仍会检查硬件枚举值域。
+[Apdu.mm](../tweak/Apdu.mm) 的 `availableSlots` 枚举 [RuntimeObjects.hpp](../tweak/RuntimeObjects.hpp) 中不持有所有权的 `ControllerView`／`SimInfoView`。这些视图使用运行时发现的偏移，通过带检查的 `MemoryReader` 复制类型明确的字段快照；容器边界检查和 内联／间接条目遍历由单独的视图处理。[SlotRouting.hpp](../tweak/SlotRouting.hpp) 过滤未分配逻辑编号、拒绝有歧义的逻辑／硬件映射，并排序已分配卡槽。`filterAndValidateAssignedSlots` 返回 `optional<vector<Slot>>`：`nullopt` 表示映射无效，空 vector 表示没有已分配卡槽。已分配但未就绪的槽仍然显示；界面不写死“只能选 1 和 2”，当前驱动适配器仍会检查硬件枚举值域。
 
 新增 `slots` IPC 操作，返回 `logicalSlot`、`hardwareSlot` 和 `simReady`，不打开通道、不发送 APDU。`open` 接收已分配的逻辑编号，映射到当前硬件编号，并在通道号之外返回两种编号。sender 使用逻辑编号，驱动调用与响应匹配使用硬件编号，详见 [IPC 协议](IPC.zh-CN.md)。
 

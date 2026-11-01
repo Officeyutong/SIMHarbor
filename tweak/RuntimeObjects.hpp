@@ -1,5 +1,6 @@
 #pragma once
 #include "SlotRouting.hpp"
+#include "SimContainer.hpp"
 #include <cstdint>
 #include <functional>
 #include <limits>
@@ -63,47 +64,63 @@ struct VectorBounds {
     Address begin = 0, end = 0;
 };
 
-class SharedPointerVectorView {
+class SimContainerView {
   public:
-    static std::optional<SharedPointerVectorView> open(const ObjectView &owner, size_t offset,
-                                                       size_t stride, size_t maximumEntries = 16) {
+    static std::optional<SimContainerView>
+    open(const ObjectView &owner, shlayout::SimContainer layout, size_t maximumEntries = 16) {
+        size_t offset = layout.member, stride = layout.stride;
         auto bounds = owner.readField<VectorBounds>(offset);
-        if (!bounds || !bounds->begin || bounds->end < bounds->begin || stride < sizeof(Address))
+        if (!bounds || !bounds->begin || bounds->end < bounds->begin || !stride || stride > 4096 ||
+            stride % alignof(Address) ||
+            (layout.storage != shlayout::EntryStorage::Inline &&
+             layout.storage != shlayout::EntryStorage::Indirect) ||
+            (layout.storage == shlayout::EntryStorage::Inline &&
+             (layout.logical > stride || sizeof(int32_t) > stride - layout.logical)) ||
+            (layout.storage == shlayout::EntryStorage::Indirect &&
+             (layout.pointee > stride || sizeof(Address) > stride - layout.pointee)))
             return std::nullopt;
         Address bytes = bounds->end - bounds->begin;
         if (bytes % stride || bytes / stride > maximumEntries)
             return std::nullopt;
-        return SharedPointerVectorView(*bounds, stride);
+        return SimContainerView(owner, *bounds, layout);
     }
 
-    // Read only the pointee word of each shared_ptr entry. Never call shared_ptr
-    // methods or touch its control block. The caller supplies the checked ABI stride.
+    // Return inline entry addresses or read the discovered pointee word. No target
+    // object is retained and no shared-pointer control block is accessed.
     std::optional<std::vector<Address>> pointees(const MemoryReader &memory) const {
         std::vector<Address> result;
-        result.reserve((bounds_.end - bounds_.begin) / stride_);
-        for (Address entry = bounds_.begin; entry < bounds_.end; entry += stride_) {
-            auto pointer = memory.read<Address>(entry);
+        result.reserve((bounds_.end - bounds_.begin) / layout_.stride);
+        for (Address entry = bounds_.begin; entry < bounds_.end; entry += layout_.stride) {
+            if (layout_.storage == shlayout::EntryStorage::Inline) {
+                result.push_back(entry);
+                continue;
+            }
+            auto pointer = memory.field<Address>(entry, layout_.pointee);
             if (!pointer || !*pointer)
                 return std::nullopt;
             result.push_back(*pointer);
         }
+        auto current = owner_.readField<VectorBounds>(layout_.member);
+        if (!current || current->begin != bounds_.begin || current->end != bounds_.end)
+            return std::nullopt;
         return result;
     }
 
   private:
-    SharedPointerVectorView(VectorBounds bounds, size_t stride)
-        : bounds_(bounds), stride_(stride) {}
+    SimContainerView(ObjectView owner, VectorBounds bounds, shlayout::SimContainer layout)
+        : owner_(std::move(owner)), bounds_(bounds), layout_(layout) {}
+    ObjectView owner_;
     VectorBounds bounds_;
-    size_t stride_;
+    shlayout::SimContainer layout_;
 };
 
 struct SimInfoLayout {
     size_t logicalSlot = 0;
     std::optional<size_t> hardwareSlot;
+    std::optional<size_t> objectBytes;
 };
 struct ControllerLayout {
-    size_t simVector = 0;
-    size_t sharedPointerStride = 0;
+    shlayout::SimContainer container;
     size_t maximumSimInfos = 16;
     std::optional<size_t> driverMember;
     SimInfoLayout simInfo;
@@ -115,6 +132,12 @@ class SimInfoView : public ObjectView {
     SimInfoView(MemoryReader memory, Address address, SimInfoLayout layout)
         : ObjectView(std::move(memory), address), layout_(layout) {}
 
+    template <class T> std::optional<T> readField(size_t offset) const {
+        if (layout_.objectBytes &&
+            (offset > *layout_.objectBytes || sizeof(T) > *layout_.objectBytes - offset))
+            return std::nullopt;
+        return ObjectView::readField<T>(offset);
+    }
     std::optional<int32_t> logicalSlot() const { return readField<int32_t>(layout_.logicalSlot); }
     std::optional<int32_t> hardwareSlot() const {
         return layout_.hardwareSlot ? readField<int32_t>(*layout_.hardwareSlot) : std::nullopt;
@@ -140,11 +163,14 @@ class SimInfoView : public ObjectView {
 class ControllerView : public ObjectView {
   public:
     ControllerView(MemoryReader memory, Address address, ControllerLayout layout)
-        : ObjectView(std::move(memory), address), layout_(layout) {}
+        : ObjectView(std::move(memory), address), layout_(layout) {
+        layout_.simInfo.logicalSlot = layout_.container.logical;
+        if (layout_.container.storage == shlayout::EntryStorage::Inline)
+            layout_.simInfo.objectBytes = layout_.container.stride;
+    }
 
     std::optional<std::vector<SimInfoView>> simInfos() const {
-        auto vector = SharedPointerVectorView::open(
-            *this, layout_.simVector, layout_.sharedPointerStride, layout_.maximumSimInfos);
+        auto vector = SimContainerView::open(*this, layout_.container, layout_.maximumSimInfos);
         if (!vector)
             return std::nullopt;
         auto pointers = vector->pointees(memory_);

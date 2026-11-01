@@ -14,6 +14,8 @@
 #include <cstdlib>
 #include <cstdio>
 #include <set>
+#include <deque>
+#include <tuple>
 
 namespace shresolve {
 // Check whether the entire byte span fits in one mapped range. Subtraction-based
@@ -69,6 +71,7 @@ struct D {
     unsigned id;
     Address address;
     cs_arm64 a;
+    uint32_t writes = 0;
 };
 class Decoder {
   public:
@@ -109,9 +112,28 @@ class Decoder {
         std::vector<D> out;
         // Keep one Capstone detail object instead of an allocated array for the full
         // function. This bounds decoder overhead inside CommCenter's memory budget.
-        while (cs_disasm_iter(cs, &code, &remaining, &pc, instruction))
-            if (instruction->detail)
-                out.push_back({instruction->id, instruction->address, instruction->detail->arm64});
+        while (cs_disasm_iter(cs, &code, &remaining, &pc, instruction)) {
+            if (!instruction->detail)
+                continue;
+            D decoded{instruction->id, instruction->address, instruction->detail->arm64};
+            cs_regs reads{}, writes{};
+            uint8_t readCount = 0, writeCount = 0;
+            if (cs_regs_access(cs, instruction, reads, &readCount, writes, &writeCount) !=
+                CS_ERR_OK)
+                decoded.writes = UINT32_MAX;
+            else
+                for (uint8_t index = 0; index < writeCount; ++index) {
+                    int normalized = reg(writes[index]);
+                    if (normalized >= 0)
+                        decoded.writes |= uint32_t(1) << normalized;
+                }
+            // Capstone 5 marks CMP's first operand as written (SUBS alias).
+            // Architectural comparison instructions only update NZCV.
+            if (decoded.id == ARM64_INS_CMP || decoded.id == ARM64_INS_CMN ||
+                decoded.id == ARM64_INS_TST)
+                decoded.writes = 0;
+            out.push_back(decoded);
+        }
         cs_free(instruction, 1);
         return out;
     }
@@ -273,6 +295,67 @@ static std::vector<Use> loads(Decoder &d, const std::vector<D> &ins) {
     }
     return out;
 }
+// Read a direct branch target from Capstone operands, including CBZ/TBZ forms.
+static Address branchTarget(const D &instruction) {
+    for (int i = instruction.a.op_count - 1; i >= 0; --i)
+        if (immop(instruction.a.operands[i]))
+            return instruction.a.operands[i].imm;
+    return 0;
+}
+// Expand one direct helper level while retaining incoming-argument identities.
+// This recognizes compiler outlining of vector reserve/byte append operations;
+// no recursive graph walk or private helper invocation is performed.
+static std::vector<Use> expandedLoads(Decoder &d, const Image &image,
+                                      const std::vector<D> &instructions) {
+    auto evidence = loads(d, instructions);
+    struct Origin {
+        int argument = -1;
+        int64_t offset = 0;
+    };
+    std::array<Origin, 32> origins{};
+    for (int r = 0; r < 8; ++r)
+        origins[r] = {r, 0};
+    for (const auto &instruction : instructions) {
+        const auto &op = instruction.a;
+        auto previous = origins;
+        if (instruction.id == ARM64_INS_BL) {
+            Address target = branchTarget(instruction);
+            if (image.code(target) &&
+                std::binary_search(image.functions.begin(), image.functions.end(), target)) {
+                const auto helper = d.function(image, target);
+                if (helper.size() <= 1024)
+                    for (auto use : loads(d, helper)) {
+                        auto origin = previous[use.argument];
+                        if (origin.argument < 0 || origin.offset + use.displacement < 0 ||
+                            origin.offset + use.displacement > 4096)
+                            continue;
+                        use.argument = origin.argument;
+                        use.displacement += origin.offset;
+                        evidence.push_back(use);
+                    }
+            }
+            for (int r = 0; r < 19; ++r)
+                origins[r] = {};
+            continue;
+        }
+        for (int r = 0; r < 32; ++r)
+            if (instruction.writes & (uint32_t(1) << r))
+                origins[r] = {};
+        if (op.op_count < 2 || !regop(op.operands[0]) || !regop(op.operands[1]))
+            continue;
+        int dest = d.reg(op.operands[0].reg), src = d.reg(op.operands[1].reg);
+        if (dest < 0 || src < 0 || width(instruction, op.operands[0].reg) != 8)
+            continue;
+        if (instruction.id == ARM64_INS_MOV)
+            origins[dest] = previous[src];
+        if (instruction.id == ARM64_INS_ADD && op.op_count == 3 && immop(op.operands[2]) &&
+            shifted(op.operands[2]) <= 4096) {
+            origins[dest] = previous[src];
+            origins[dest].offset += shifted(op.operands[2]);
+        }
+    }
+    return evidence;
+}
 // Collapse duplicate evidence and require exactly one distinct candidate. Record
 // an ambiguity/missing-candidate error and return zero otherwise.
 static Address only(Plan &p, const std::vector<Address> &v, const std::string &label) {
@@ -340,6 +423,265 @@ static bool hasref(Decoder &d, const Image &m, Address fn, Address target) {
     auto r = refs(d, d.function(m, fn));
     return std::find(r.begin(), r.end(), target) != r.end();
 }
+namespace {
+enum class ValueKind { Unknown, Cursor, End, Object, Field, State };
+struct FlowValue {
+    ValueKind kind = ValueKind::Unknown;
+    int64_t offset = 0, pointee = 0;
+    auto key() const { return std::make_tuple(kind, offset, pointee); }
+    bool operator<(const FlowValue &other) const { return key() < other.key(); }
+    bool operator==(const FlowValue &other) const { return key() == other.key(); }
+};
+struct FlowPath {
+    size_t pc = 0;
+    std::array<FlowValue, 32> registers{};
+    FlowValue compared{}, matched{}, getter{};
+    bool comparedBounds = false, bounded = false;
+    auto key() const {
+        return std::make_tuple(pc, registers, compared, matched, getter, comparedBounds, bounded);
+    }
+};
+// Indirect transfers and returns end this bounded, intraprocedural path.
+static bool endsPath(unsigned id) {
+    return id == ARM64_INS_RET || id == ARM64_INS_RETAA || id == ARM64_INS_RETAB ||
+           id == ARM64_INS_BR || id == ARM64_INS_BRAA || id == ARM64_INS_BRAAZ ||
+           id == ARM64_INS_BRAB || id == ARM64_INS_BRABZ;
+}
+// Only complete traversal proofs survive: bounds loop, slot equality, object
+// passed to the state getter, getter result consumed by the exported predicate.
+static std::vector<shlayout::SimContainer> simContainers(Decoder &d, const Image &image,
+                                                         const std::vector<D> &instructions,
+                                                         Address state, Address ready) {
+    std::map<Address, size_t> positions;
+    for (size_t i = 0; i < instructions.size(); ++i)
+        positions[instructions[i].address] = i;
+    std::set<shlayout::SimContainer> result;
+    bool exhausted = false;
+    for (size_t seed = 0; seed < instructions.size(); ++seed) {
+        const auto &start = instructions[seed];
+        const auto &a = start.a;
+        if (start.id != ARM64_INS_LDP || a.op_count != 3 || !memop(a.operands[2]) ||
+            d.reg(a.operands[2].mem.base) == 31 || a.operands[2].mem.disp <= 0 ||
+            width(start, a.operands[0].reg) != 8)
+            continue;
+        int cursor = d.reg(a.operands[0].reg), end = d.reg(a.operands[1].reg);
+        if (cursor < 0 || end < 0 || cursor == end)
+            continue;
+        FlowPath initial;
+        initial.pc = seed + 1;
+        initial.registers[cursor] = {ValueKind::Cursor, 0, 0};
+        initial.registers[end] = {ValueKind::End, 0, 0};
+        std::deque<FlowPath> queue{initial};
+        std::set<decltype(initial.key())> visited;
+        std::set<size_t> strides;
+        std::set<FlowValue> objects;
+        // Backedges are not executed. A cursor reaching its bounds comparison
+        // through a backedge supplies the element stride for one loop iteration.
+        auto enqueue = [&](FlowPath path, size_t target, size_t from) {
+            if (target >= instructions.size())
+                return;
+            if (target <= from) {
+                const auto &compare = instructions[target].a;
+                if (instructions[target].id == ARM64_INS_CMP && compare.op_count == 2 &&
+                    regop(compare.operands[0]) && regop(compare.operands[1])) {
+                    int lhs = d.reg(compare.operands[0].reg), rhs = d.reg(compare.operands[1].reg);
+                    if (lhs >= 0 && rhs >= 0) {
+                        auto first = path.registers[lhs], second = path.registers[rhs];
+                        if (first.kind == ValueKind::End)
+                            std::swap(first, second);
+                        if (first.kind == ValueKind::Cursor && second.kind == ValueKind::End &&
+                            first.offset > 0 && first.offset <= 4096 && !(first.offset % 8))
+                            strides.insert(first.offset);
+                    }
+                }
+                return;
+            }
+            path.pc = target;
+            queue.push_back(std::move(path));
+        };
+        while (!queue.empty()) {
+            FlowPath path = std::move(queue.front());
+            queue.pop_front();
+            if (path.pc >= instructions.size() || path.pc - seed > 512)
+                continue;
+            if (!visited.insert(path.key()).second)
+                continue;
+            if (visited.size() > 4096) {
+                exhausted = true;
+                break;
+            }
+            const auto &instruction = instructions[path.pc];
+            const auto &op = instruction.a;
+            auto before = path.registers;
+
+            auto value = [&](unsigned reg) {
+                int r = d.reg(reg);
+                return r >= 0 ? before[r] : FlowValue{};
+            };
+            if (endsPath(instruction.id))
+                continue;
+            if (instruction.id == ARM64_INS_B || instruction.id == ARM64_INS_CBZ ||
+                instruction.id == ARM64_INS_CBNZ || instruction.id == ARM64_INS_TBZ ||
+                instruction.id == ARM64_INS_TBNZ) {
+                auto found = positions.find(branchTarget(instruction));
+                bool unconditional = instruction.id == ARM64_INS_B &&
+                                     (op.cc == ARM64_CC_INVALID || op.cc == ARM64_CC_AL);
+                FlowPath taken = path;
+                if (instruction.id == ARM64_INS_B && path.comparedBounds) {
+                    if (op.cc == ARM64_CC_EQ) {
+                        taken.bounded = false;
+                        path.bounded = true;
+                    }
+                    if (op.cc == ARM64_CC_NE) {
+                        taken.bounded = true;
+                        path.bounded = false;
+                    }
+                }
+                if (instruction.id == ARM64_INS_B && path.compared.kind == ValueKind::Field) {
+                    if (op.cc == ARM64_CC_EQ)
+                        taken.matched = path.compared;
+                    if (op.cc == ARM64_CC_NE)
+                        path.matched = path.compared;
+                }
+                if (found != positions.end())
+                    enqueue(std::move(taken), found->second, path.pc);
+                if (!unconditional)
+                    enqueue(std::move(path), path.pc + 1, path.pc);
+                continue;
+            }
+            if (instruction.id == ARM64_INS_BL) {
+                Address target = branchTarget(instruction), resolved = stub(d, image, target);
+                FlowValue input = before[0], proof{};
+                if (target == state || resolved == state) {
+                    auto field = path.matched;
+                    if (path.bounded && field.kind == ValueKind::Field &&
+                        ((field.pointee < 0 && input.kind == ValueKind::Cursor &&
+                          input.offset == 0) ||
+                         (field.pointee >= 0 && input.kind == ValueKind::Object &&
+                          input.offset == 0 && input.pointee == field.pointee)))
+                        proof = field;
+                }
+                if ((target == ready || resolved == ready) && input.kind == ValueKind::State &&
+                    path.getter.kind == ValueKind::Field) {
+                    objects.insert(path.getter);
+                    continue;
+                }
+                for (int r = 0; r < 19; ++r)
+                    path.registers[r] = {};
+                path.compared = {};
+                path.getter = proof;
+                if (proof.kind == ValueKind::Field)
+                    path.registers[0] = {ValueKind::State, 0, 0};
+                enqueue(std::move(path), path.pc + 1, path.pc);
+                continue;
+            }
+            if (instruction.id == ARM64_INS_BLR || instruction.id == ARM64_INS_BLRAA ||
+                instruction.id == ARM64_INS_BLRAAZ || instruction.id == ARM64_INS_BLRAB ||
+                instruction.id == ARM64_INS_BLRABZ) {
+                for (int r = 0; r < 19; ++r)
+                    path.registers[r] = {};
+                path.getter = {};
+                path.compared = {};
+                path.comparedBounds = false;
+            }
+            for (int r = 0; r < 32; ++r)
+                if (instruction.writes & (uint32_t(1) << r))
+                    path.registers[r] = {};
+            if (op.update_flags) {
+                path.compared = {};
+                path.comparedBounds = false;
+            }
+            if (instruction.id == ARM64_INS_CMP && op.op_count == 2 && regop(op.operands[0]) &&
+                regop(op.operands[1])) {
+                auto first = value(op.operands[0].reg), second = value(op.operands[1].reg);
+                path.comparedBounds = (first.kind == ValueKind::Cursor && first.offset == 0 &&
+                                       second.kind == ValueKind::End) ||
+                                      (second.kind == ValueKind::Cursor && second.offset == 0 &&
+                                       first.kind == ValueKind::End);
+                if (first.kind != ValueKind::Field)
+                    std::swap(first, second);
+                if (first.kind == ValueKind::Field && second.kind == ValueKind::Unknown &&
+                    d.reg(op.operands[0].reg) != d.reg(op.operands[1].reg))
+                    path.compared = first;
+                else
+                    path.compared = {};
+            } else if (instruction.id == ARM64_INS_MOV && op.op_count == 2 &&
+                       regop(op.operands[0]) && regop(op.operands[1])) {
+                int dest = d.reg(op.operands[0].reg);
+                auto source = value(op.operands[1].reg);
+                if (dest >= 0 &&
+                    (width(instruction, op.operands[0].reg) == 8 ||
+                     (source.kind != ValueKind::Cursor && source.kind != ValueKind::End &&
+                      source.kind != ValueKind::Object)))
+                    path.registers[dest] = source;
+            } else if (instruction.id == ARM64_INS_ADD && op.op_count == 3 &&
+                       regop(op.operands[0]) && regop(op.operands[1]) && immop(op.operands[2])) {
+                int dest = d.reg(op.operands[0].reg);
+                auto source = value(op.operands[1].reg);
+                Address amount = shifted(op.operands[2]);
+                if (dest >= 0 && width(instruction, op.operands[0].reg) == 8 && amount <= 4096 &&
+                    (source.kind == ValueKind::Cursor || source.kind == ValueKind::Object)) {
+                    source.offset += amount;
+                    path.registers[dest] = source;
+                }
+            } else if ((instruction.id == ARM64_INS_LDR || instruction.id == ARM64_INS_LDUR ||
+                        instruction.id == ARM64_INS_LDP) &&
+                       !op.writeback) {
+                int memoryIndex = instruction.id == ARM64_INS_LDP ? 2 : 1;
+                if (op.op_count > memoryIndex && memop(op.operands[memoryIndex])) {
+                    auto base = value(op.operands[memoryIndex].mem.base);
+                    int64_t displacement = op.operands[memoryIndex].mem.disp;
+                    int outputs = instruction.id == ARM64_INS_LDP ? 2 : 1;
+                    for (int part = 0; part < outputs; ++part) {
+                        int dest = d.reg(op.operands[part].reg);
+                        if (dest < 0)
+                            continue;
+                        int bytes = width(instruction, op.operands[part].reg);
+                        int64_t offset = base.offset + displacement + part * bytes;
+                        if (offset < 0 || offset > 4096)
+                            continue;
+                        if (base.kind == ValueKind::Cursor && bytes == 8 && base.offset == 0)
+                            path.registers[dest] = {ValueKind::Object, 0, offset};
+                        else if (bytes == 4 &&
+                                 (base.kind == ValueKind::Object || base.kind == ValueKind::Cursor))
+                            path.registers[dest] = {ValueKind::Field, offset,
+                                                    base.kind == ValueKind::Cursor ? -1
+                                                                                   : base.pointee};
+                    }
+                }
+            }
+            enqueue(std::move(path), path.pc + 1, path.pc);
+        }
+        if (strides.size() != 1)
+            continue;
+        for (const auto &object : objects) {
+            size_t stride = *strides.begin();
+            if (object.offset < 0 || object.offset > 4092)
+                continue;
+            if (object.pointee < 0 && size_t(object.offset) + 4 > stride)
+                continue;
+            if (object.pointee >= 0 && size_t(object.pointee) + 8 > stride)
+                continue;
+            result.insert({object.pointee < 0 ? shlayout::EntryStorage::Inline
+                                              : shlayout::EntryStorage::Indirect,
+                           size_t(a.operands[2].mem.disp), stride,
+                           object.pointee < 0 ? 0 : size_t(object.pointee), size_t(object.offset)});
+        }
+    }
+    if (exhausted)
+        return {};
+    return {result.begin(), result.end()};
+}
+} // namespace
+// Public pure-analysis entry point used by the runtime resolver and fixture tests.
+std::vector<shlayout::SimContainer> discoverSimContainers(const Image &image, Address worker,
+                                                          Address state, Address ready) {
+    Decoder decoder;
+    if (!decoder.cs || !worker || !state || !ready)
+        return {};
+    return simContainers(decoder, image, decoder.function(image, worker), state, ready);
+}
+
 // Build a static transport plan from driver symbols, callback load patterns, RTTI
 // and CommCenter instruction references. Require unique candidates and compatible
 // driver signatures; failures return a partial plan with errors and complete=false.
@@ -352,6 +694,7 @@ Plan resolve(const Image &cc, const Image &dr, const std::vector<Symbol> &symbol
         return p;
     }
     std::vector<Address> start, command, close, callbacks;
+    bool callbackSignatureValidated = false;
     // Normalize demangled signature whitespace before comparing adapter ABI shapes.
     // The predicate removes only spaces, tabs and newlines.
     auto signature = [](std::string name) {
@@ -398,13 +741,54 @@ Plan resolve(const Image &cc, const Image &dr, const std::vector<Symbol> &symbol
                     "driverClose parameter signature is incompatible with the transport adapter");
             close.push_back(s.address);
         }
-        if (block && s.name.find("::sendSimApdu_command(") != std::string::npos)
+        if (block && s.name.find("::sendSimApdu_command(") != std::string::npos) {
+            const auto owner = s.name.substr(s.name.find(prefix));
+            if (signature(owner) != commandSignature)
+                p.errors.push_back(
+                    "command callback owner signature is incompatible with the transport adapter");
+            else
+                callbackSignatureValidated = true;
             callbacks.push_back(s.address);
+        }
+    }
+    // Newer compilers inline command construction into the native open-success
+    // block. Recover that continuation, never cast it to the old method ABI.
+    bool recoveredCommand = command.empty();
+    std::vector<Address> continuations;
+    if (recoveredCommand && callbackSignatureValidated && start.size() == 1 && p.errors.empty()) {
+        std::set<Address> namedCallbacks(callbacks.begin(), callbacks.end());
+        std::vector<Address> candidates;
+        for (Address candidate : dr.functions) {
+            std::set<Address> referenced;
+            for (Address reference : refs(d, d.function(dr, candidate)))
+                if (namedCallbacks.count(reference))
+                    referenced.insert(reference);
+            if (referenced.size() >= 2)
+                candidates.push_back(candidate);
+        }
+        for (Address owner : dr.functions) {
+            const auto instructions = d.function(dr, owner);
+            bool callsStart = false;
+            for (const auto &instruction : instructions)
+                if (instruction.id == ARM64_INS_BL && branchTarget(instruction) == start[0])
+                    callsStart = true;
+            if (!callsStart)
+                continue;
+            const auto references = refs(d, instructions);
+            for (Address candidate : candidates)
+                if (std::find(references.begin(), references.end(), candidate) != references.end())
+                    continuations.push_back(candidate);
+        }
     }
     p.set("driverStart", only(p, start, "driverStart"),
           "Module-scoped private symbol + image/function boundary");
-    p.set("driverCommand", only(p, command, "driverCommand"),
-          "Module-scoped private symbol + image/function boundary");
+    if (recoveredCommand)
+        p.set(
+            "commandContinuation", only(p, continuations, "commandContinuation"),
+            "Exact command callback owner ABI + multiple callback references + continuation referenced by caller of validated driverStart; native block ABI required");
+    else
+        p.set("driverCommand", only(p, command, "driverCommand"),
+              "Module-scoped private symbol + image/function boundary");
     p.set("driverClose", only(p, close, "driverClose"),
           "Module-scoped private symbol + image/function boundary");
     if (!p.errors.empty())
@@ -416,14 +800,19 @@ Plan resolve(const Image &cc, const Image &dr, const std::vector<Symbol> &symbol
     std::map<Address, std::vector<Use>> uses;
     for (Address f : callbacks) {
         auto ins = d.function(dr, f);
-        auto u = loads(d, ins);
+        auto u = expandedLoads(d, dr, ins);
         uses[f] = u;
-        bool vec0 = false, vec8 = false, slot = false, qmiError = false, closeCall = false;
+        bool vec0 = false, vec8 = false, tail8 = false, tail16 = false, slot = false,
+             qmiError = false, closeCall = false;
         for (auto &v : u) {
             if (v.argument == 1 && v.id == ARM64_INS_LDP && v.displacement == 0)
                 vec0 = true;
             if (v.argument == 1 && v.id == ARM64_INS_LDP && v.displacement == 8)
                 vec8 = true;
+            if (v.argument == 1 && v.bytes == 8 && v.id == ARM64_INS_LDR) {
+                tail8 |= v.displacement == 8;
+                tail16 |= v.displacement == 16;
+            }
             if (v.argument == 0 && v.bytes == 4 && v.displacement > 0)
                 slot = true;
             if (v.argument == 1 && v.bytes == 4 && v.id == ARM64_INS_LDR && v.displacement >= 0 &&
@@ -433,7 +822,7 @@ Plan resolve(const Image &cc, const Image &dr, const std::vector<Symbol> &symbol
         for (auto &i : ins)
             if (i.id == ARM64_INS_BL && i.a.operands[0].imm == (int64_t)p.values["driverClose"])
                 closeCall = true;
-        if (vec8)
+        if (vec8 || (tail8 && tail16))
             encoders.push_back(f);
         if (vec0 && slot)
             responses.push_back(f);
@@ -552,35 +941,25 @@ Plan resolve(const Image &cc, const Image &dr, const std::vector<Symbol> &symbol
           "worker call immediately preceding exported isSimReady");
     if (!p.errors.empty())
         return p;
-    // Recognize vector-bound loads followed by a shared-pointer pointee load and
-    // logical-slot word load, then require unique member displacements.
-    std::vector<Address> vectors, logical;
-    for (size_t i = 0; i < worker.size(); i++) {
-        auto &a = worker[i].a;
-        if (worker[i].id != ARM64_INS_LDP || a.op_count != 3 || !memop(a.operands[2]) ||
-            d.reg(a.operands[2].mem.base) == 31 || a.operands[2].mem.disp <= 0)
-            continue;
-        int cursor = d.reg(a.operands[0].reg);
-        for (size_t j = i + 1; j < std::min(worker.size(), i + 8); j++) {
-            auto &b = worker[j].a;
-            if (worker[j].id != ARM64_INS_LDR || b.op_count != 2 || !memop(b.operands[1]) ||
-                d.reg(b.operands[1].mem.base) != cursor || b.operands[1].mem.disp)
-                continue;
-            int object = d.reg(b.operands[0].reg);
-            for (size_t k = j + 1; k < std::min(worker.size(), j + 4); k++) {
-                auto &c = worker[k].a;
-                if (worker[k].id == ARM64_INS_LDR && c.op_count == 2 && memop(c.operands[1]) &&
-                    d.reg(c.operands[1].mem.base) == object &&
-                    width(worker[k], c.operands[0].reg) == 4 && c.operands[1].mem.disp > 0) {
-                    vectors.push_back(a.operands[2].mem.disp);
-                    logical.push_back(c.operands[1].mem.disp);
-                }
-            }
-        }
+    auto containers = simContainers(d, cc, worker, p.values["simState"], ready);
+    if (containers.size() != 1) {
+        p.errors.push_back("SimInfo traversal: expected unique validated container, got " +
+                           std::to_string(containers.size()));
+        return p;
     }
-    p.set("simVector", only(p, vectors, "SimInfo vector"),
-          "worker LDP vector bounds -> shared_ptr node -> slot comparison");
-    p.set("logicalSlot", only(p, logical, "logical slot"), "worker slot comparison load");
+    p.simContainer = containers[0];
+    const auto &layout = *p.simContainer;
+    // Zero is a valid field/pointee displacement; it is not a missing discovery.
+    for (const auto &entry :
+         std::map<std::string, Address>{{"simVector", layout.member},
+                                        {"logicalSlot", layout.logical},
+                                        {"simEntryStride", layout.stride},
+                                        {"simPointeeOffset", layout.pointee},
+                                        {"simStorage", Address(layout.storage)}}) {
+        p.values[entry.first] = entry.second;
+        p.sources[entry.first] =
+            "Validated bounds loop, slot equality, cursor stride and state-getter dataflow";
+    }
     p.complete = p.errors.empty();
     return p;
 }

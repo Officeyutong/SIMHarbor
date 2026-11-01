@@ -266,17 +266,17 @@ static std::string typeName(uintptr_t object) {
 }
 shruntime::ControllerView SHMakeControllerView(const SHFirmware &fw, uintptr_t object) {
     shruntime::ControllerLayout layout;
-    layout.simVector = fw.plan.values.at("simVector");
-    layout.sharedPointerStride = sizeof(std::shared_ptr<void>);
-    layout.simInfo.logicalSlot = fw.plan.values.at("logicalSlot");
-    if (auto offset = fw.hardwareSlot.load())
-        layout.simInfo.hardwareSlot = offset;
-    if (auto offset = fw.driverMember.load())
-        layout.driverMember = offset;
+    layout.container = fw.plan.simContainer.value_or(shlayout::SimContainer{});
+    layout.simInfo.logicalSlot = layout.container.logical;
+    // Completion is explicit: a hardware field at byte zero is valid.
+    if (fw.objectStage.load() == 7) {
+        layout.simInfo.hardwareSlot = fw.hardwareSlot.load();
+        layout.driverMember = fw.driverMember.load();
+    }
     return {shruntime::MemoryReader(SHReadMemory), object, layout};
 }
 bool SHInferObjectLayout(SHFirmware &fw, uintptr_t object) {
-    if (!fw.plan.complete || !object)
+    if (!fw.plan.complete || !fw.plan.simContainer || !object)
         return false;
     fw.objectStage = 2;
     auto controller = SHMakeControllerView(fw, object);
@@ -393,7 +393,7 @@ shjson::ResolverReport SHResolverReport(const std::shared_ptr<SHFirmware> &fw) {
     details.objectDiscoveryStage = fw->objectStage.load();
     details.driverCandidates = fw->driverCandidates.load();
     details.hardwareCandidates = fw->hardwareCandidates.load();
-    details.objectLayoutResolved = fw->driverMember.load() && fw->hardwareSlot.load();
+    details.objectLayoutResolved = fw->objectStage.load() == 7;
     details.policy =
         "Runtime capability discovery; UUIDs are diagnostic metadata only; no numerical-offset fallback";
     return report;

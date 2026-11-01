@@ -51,3 +51,12 @@ with tempfile.TemporaryDirectory(prefix="simharbor-resolver-") as folder:
         check=True,
     )
     subprocess.run([str(output / "resolver"), str(args.fixture.resolve())], check=True)
+    subprocess.run(
+        [
+            "python3",
+            str(ROOT / "tests/check_sim_container.py"),
+            "--capstone-include",
+            args.capstone_include,
+        ],
+        check=True,
+    )

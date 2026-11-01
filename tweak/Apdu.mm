@@ -57,6 +57,45 @@ static dispatch_semaphore_t event;
 static int logicalSlot = 0;
 static bool directSession = false;
 static std::shared_ptr<Vec> directResponse;
+// A copied native success block owns its compiler-generated captures. Its invoke
+// entry is verified against the static continuation proof before it can be reused.
+static void (^nativeCommand)(int, uint8_t);
+static Vec openingAid;
+// Header defined by the platform's Objective-C block ABI, not a private firmware layout.
+struct NativeBlockHeader {
+    uintptr_t isa;
+    uint32_t flags, reserved;
+    uintptr_t invoke;
+};
+static void (*startOrig)(void *, int, const Vec &, void (^)(int, uint8_t), const Fn &);
+static void startHook(void *self, int hardware, const Vec &aid, void (^opened)(int, uint8_t),
+                      const Fn &done) {
+    if (phase.load() != Phase::Opening || hardware != slot || self != driver.load() ||
+        aid != openingAid) {
+        startOrig(self, hardware, aid, opened, done);
+        return;
+    }
+    auto header = shruntime::MemoryReader(SHReadMemory)
+                      .read<NativeBlockHeader>((uintptr_t)(__bridge void *)opened);
+    if (!header || SHCleanPointer(header->invoke) != location("commandContinuation")) {
+        // Reject before opening a channel when the actual native block disagrees
+        // with discovery. Do not fabricate captures or call a guessed function ABI.
+        phase.store(Phase::Idle);
+        if (done)
+            done(false);
+        dispatch_semaphore_signal(event);
+        return;
+    }
+    nativeCommand = [opened copy];
+    driver = self;
+    startOrig(
+        self, hardware, aid,
+        ^(int actualSlot, uint8_t allocated) {
+            channel = allocated;
+            opened(actualSlot, allocated);
+        },
+        done);
+}
 static std::atomic<bool> compatible{false};
 static void (*commandOrig)(void *, int, uint8_t, uint8_t, Vec &, const Fn &);
 static void (*closeOrig)(void *, int, uint8_t, bool, const Fn &);
@@ -159,8 +198,16 @@ static void *serviceMapMutableHook(void *self) {
 // captured Registry map and validate its driver/slot layout. Failure leaves iface
 // unset so a later request can retry while CommCenter finishes initialization.
 static bool ensureInterface() {
-    if (iface)
-        return true;
+    if (auto cached = iface.load()) {
+        uintptr_t vtable = 0;
+        if (SHReadMemory(reinterpret_cast<uintptr_t>(cached), &vtable, sizeof vtable) &&
+            SHCleanPointer(vtable) == location("controllerVtable"))
+            return true;
+        // Never rediscover/retarget a borrowed object during a retained session.
+        if (phase.load() != Phase::Idle)
+            return false;
+        iface = nullptr;
+    }
     auto fw = std::atomic_load(&firmware);
     if (!compatible || !fw)
         return false;
@@ -197,6 +244,7 @@ static bool closeSession() {
     if (ok) {
         retained = {};
         directResponse.reset();
+        nativeCommand = nil;
         directSession = false;
         driver = nullptr;
         responseVector = nullptr;
@@ -315,6 +363,9 @@ static Reply handle(const shjson::Request &q) {
             return fail(@"SIM slot not found. Wait for initialization and refresh.");
         logicalSlot = requested;
         slot = hardware;
+        if (!ready && resolved.values.count("commandContinuation"))
+            return fail(
+                @"This firmware requires a ready SIM to retain its native command callback. Enable a profile using another device first.");
         if (!ready) {
             // An inactive SIM may still expose ISD-R through the direct driver path.
             // Own the response vector here instead of borrowing the sender's vector.
@@ -362,6 +413,16 @@ static Reply handle(const shjson::Request &q) {
             }
             return Reply::success(shjson::OpenReply{channel.load(), logicalSlot, slot});
         }
+        if (resolved.values.count("commandContinuation")) {
+            auto fw = std::atomic_load(&firmware);
+            auto controller = SHMakeControllerView(*fw, reinterpret_cast<uintptr_t>(iface.load()));
+            auto address = controller.driver();
+            if (!address)
+                return fail(@"Card driver is not ready.");
+            driver = reinterpret_cast<void *>(*address);
+            nativeCommand = nil;
+            openingAid.assign((uint8_t *)d.bytes, (uint8_t *)d.bytes + d.length);
+        }
         // The normal sender accepts an AID, not raw APDU bytes. Its command/close
         // hooks capture and retain the session needed by later transmit requests.
         auto aid = std::make_shared<Vec>((uint8_t *)d.bytes, (uint8_t *)d.bytes + d.length);
@@ -393,7 +454,10 @@ static Reply handle(const shjson::Request &q) {
         phase.store(Phase::Transmitting);
         // Trigger the existing command path with 0xc0; encodeHook replaces the final
         // outgoing bytes with pending, so the actual APDU can have another INS.
-        commandOrig(driver, slot, channel, 0xc0, *responseVector, retained);
+        if (nativeCommand)
+            nativeCommand(slot, channel);
+        else
+            commandOrig(driver, slot, channel, 0xc0, *responseVector, retained);
         if (!awaitDone())
             return fail(@"Card response timed out. Do not repeat the write.");
         std::lock_guard<std::mutex> g(mu);
@@ -490,8 +554,12 @@ extern "C" void estk_apdu_start(void) {
                 if (fw->mutableGetter && fw->mutableGetter != fw->getter)
                     MSHookFunction((void *)fw->mutableGetter, (void *)serviceMapMutableHook,
                                    (void **)&serviceMapMutableOrig);
-                MSHookFunction((void *)location("driverCommand"), (void *)commandHook,
-                               (void **)&commandOrig);
+                if (resolved.values.count("commandContinuation"))
+                    MSHookFunction((void *)location("driverStart"), (void *)startHook,
+                                   (void **)&startOrig);
+                else
+                    MSHookFunction((void *)location("driverCommand"), (void *)commandHook,
+                                   (void **)&commandOrig);
                 MSHookFunction((void *)location("encoder"), (void *)encodeHook,
                                (void **)&encodeOrig);
                 MSHookFunction((void *)location("response"), (void *)responseHook,
@@ -501,8 +569,8 @@ extern "C" void estk_apdu_start(void) {
                                (void **)&closeOrig);
                 MSHookFunction((void *)location("completion"), (void *)completionHook,
                                (void **)&completionOrig);
-                bool installed = serviceMapOrig && commandOrig && encodeOrig && responseOrig &&
-                                 qmiOrig && closeOrig && completionOrig &&
+                bool installed = serviceMapOrig && (commandOrig || startOrig) && encodeOrig &&
+                                 responseOrig && qmiOrig && closeOrig && completionOrig &&
                                  (!fw->mutableGetter || fw->mutableGetter == fw->getter ||
                                   serviceMapMutableOrig);
                 fw->hookStage = installed ? 2 : 3;

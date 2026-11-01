@@ -1,4 +1,6 @@
 #pragma once
+#include "SimContainer.hpp"
+#include <optional>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -31,10 +33,14 @@ struct Plan {
     std::map<std::string, Address> values;
     std::map<std::string, std::string> sources;
     std::vector<std::string> errors;
+    std::optional<shlayout::SimContainer> simContainer;
     bool complete = false;
     bool signaturesValidated = false;
     void set(const std::string &, Address, const std::string &);
 };
+// Analyze bounded traversal paths and require object/slot/state dataflow evidence.
+std::vector<shlayout::SimContainer> discoverSimContainers(const Image &, Address worker,
+                                                          Address state, Address ready);
 Plan resolve(const Image &cc, const Image &driver, const std::vector<Symbol> &, Address ready);
 // Safe object discovery is separate from static code analysis and sends no commands.
 Address findController(Address map, Address vtable,

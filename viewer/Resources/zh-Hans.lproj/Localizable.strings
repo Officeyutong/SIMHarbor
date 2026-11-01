@@ -312,3 +312,5 @@
 "Submitting operator notifications…" = "正在提交运营商通知…";
 
 "The profile operation completed, but some operator notifications are pending. Open Notifications to retry." = "卡片操作已完成，但部分运营商通知尚未提交。请进入“通知”重试。";
+
+"This firmware requires a ready SIM to retain its native command callback. Enable a profile using another device first." = "此固件需要 SIM 处于就绪状态才能保留原生命令回调。请先用其他设备启用一个配置文件。";

@@ -46,6 +46,8 @@ The high-level `sender` receives the AID, **not arbitrary raw APDU bytes**. The 
 
 The second path allows management attempts when an active cellular profile is unavailable. Its availability depends on runtime validation and the card/driver, not a guarantee that every inactive SIM can be accessed.
 
+When command construction is inlined and no independent method survives, the adapter retains the driver’s native open-success block instead. It verifies the invoke entry against `commandContinuation`, copies the block with its original captures, and invokes it for later exchanges. This path currently requires a ready SIM. See the [adaptive discovery rules](PATCHFINDER.md#adaptive-layouts-and-native-continuations-1322).
+
 ## 3. Retain the session instead of closing after one exchange
 
 The original driver flow calls `sendSimApdu_close` when its exchange finishes. Closing at that point would prevent a multi-command eSIM transaction from using the same session.

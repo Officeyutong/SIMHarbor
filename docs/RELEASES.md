@@ -1,5 +1,21 @@
 # Release notes / 版本记录
 
+## 1.3.22 — build 1322
+
+### English
+
+- Discover inline/indirect SimInfo containers, entry stride, pointee displacement and logical-slot fields through bounded ARM64 traversal analysis. Check object extents and reread container bounds; revalidate cached controller vtables.
+- Handle inlined APDU commands by verifying and retaining the driver's native open-success block. Follow one helper level for outlined encoder loads. Keep ambiguity rejection, complete callback-owner signature checks and the target's readiness predicate.
+- Static resolver replay passes the six collected firmware samples (16.5.1, 17.2.1, 17.6, 18.0, 18.6 and 26.0.1). This does not establish compatibility for every device/build. The native-continuation path currently requires a ready SIM; inactive-card access on that path remains unsupported. The independent command-method path retains inactive-slot access.
+- Add sanitizer cases for synthetic ARM64 traversals, inline bounds, displaced pointee words and changing containers. On iOS 17.2.1, the roothide package passes runtime discovery, hooks, slot enumeration and read-only EID/profile listing. No profile download, deletion or switch was tested. Update bilingual patchfinder and transport documentation.
+
+### 简体中文
+
+- 通过有界 ARM64 遍历分析发现内联／间接 SimInfo 容器、条目步长、指针位移和逻辑槽字段。检查对象范围、再次核对容器边界，并重新验证缓存控制器的虚表。
+- 对被内联的 APDU 命令，核对并保留驱动原生打开成功 block；跨一层辅助函数追踪拆出的编码器加载。保留歧义拒绝、完整的回调所属签名校验及目标系统自身的就绪判断。
+- 六个已收集固件样本（16.5.1、17.2.1、17.6、18.0、18.6、26.0.1）通过静态解析重放，不代表所有设备／构建均兼容。原生 continuation 路径目前需要 SIM 就绪，尚不支持未就绪卡片；独立命令方法路径保留未就绪槽位访问。
+- 新增合成 ARM64 遍历、内联边界、非零指针位移及容器变更的 sanitizer 测试。iOS 17.2.1 上的 roothide 包通过运行时解析、Hook、卡槽枚举和 EID／配置列表只读检查；未测试配置下载、删除或切换。更新中英文 patchfinder／通信文档。
+
 ## 1.3.21 — build 1321
 
 ### English

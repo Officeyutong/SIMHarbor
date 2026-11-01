@@ -117,6 +117,20 @@ int main(int argc, char **argv) {
     assert(p.values.at("controllerVtable") == cc.base + 0x175fb78);
     assert(p.values.at("completion") == cc.base + 0x803a74);
     assert(p.values.at("simVector") == 0xa8 && p.values.at("logicalSlot") == 0x24);
+    assert(p.simContainer && p.simContainer->storage == shlayout::EntryStorage::Indirect &&
+           p.simContainer->stride == 16 && p.simContainer->pointee == 0);
+    auto strippedCommand = symbols;
+    strippedCommand.erase(std::remove_if(strippedCommand.begin(), strippedCommand.end(),
+                                         [](const auto &s) {
+                                             return s.name.find("block in") == std::string::npos &&
+                                                    s.name.find("sendSimApdu_command(") !=
+                                                        std::string::npos;
+                                         }),
+                          strippedCommand.end());
+    auto stripped = resolve(cc, dr, strippedCommand, number(meta.get(), "ready"));
+    // An out-of-line command must not be misidentified as an inlined continuation.
+    assert(!stripped.complete);
+
     assert(p.values.at("driverStart") == dr.base + 0x168858);
     assert(p.values.at("driverCommand") == dr.base + 0x1693e0);
     assert(p.values.at("driverClose") == dr.base + 0x16a7a4);
