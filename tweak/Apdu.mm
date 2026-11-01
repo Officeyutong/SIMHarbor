@@ -19,6 +19,8 @@ using Vec = std::vector<uint8_t>;
 using Fn = std::function<void(bool)>;
 static std::shared_ptr<SHFirmware> firmware;
 static shresolve::Plan resolved;
+// Read a required address or field offset from the validated discovery plan.
+// Callers must wait for compatibility checks; there is no numerical fallback.
 static uintptr_t location(const char *key) { return resolved.values.at(key); }
 static std::atomic<void *> registryMap{nullptr};
 static std::atomic<void *> iface{nullptr}, driver{nullptr};
@@ -40,7 +42,12 @@ static void (*responseOrig)(void *, const Vec &);
 static void (*qmiOrig)(void *, void *);
 
 static void (*completionOrig)(void *, bool *);
+// Wake a bridge request waiting for a driver callback to advance the session phase.
+// The caller must update phase before signalling; the semaphore carries no result data.
 static void signalDone() { dispatch_semaphore_signal(event); }
+// Observe the opening command for the selected hardware slot and capture its live
+// driver, channel and response-vector reference. The vector remains owned by the
+// original session; always forward the command to preserve the driver's workflow.
 static void commandHook(void *self, int s, uint8_t c, uint8_t ins, Vec &v, const Fn &cb) {
     if (phase == 1 && s == slot) {
         driver = self;
@@ -49,6 +56,9 @@ static void commandHook(void *self, int s, uint8_t c, uint8_t ins, Vec &v, const
     }
     commandOrig(self, s, c, ins, v, cb);
 }
+// Let the original encoder build its APDU, then substitute the pending user bytes
+// once during an active transmission on the captured channel. This hook checks the
+// channel, not the hardware slot; pending is consumed under the shared buffer mutex.
 static void encodeHook(void *b, Vec &v) {
     encodeOrig(b, v);
     if (phase == 3 && *((uint8_t *)b + location("encoderChannel")) == channel) {
@@ -59,6 +69,8 @@ static void encodeHook(void *b, Vec &v) {
         }
     }
 }
+// Capture the complete card response, including SW1/SW2, only for the transmitting
+// session's hardware slot and channel. Preserve normal driver processing afterward.
 static void responseHook(void *b, const Vec &v) {
     if (phase == 3 && *(int *)((char *)b + location("responseSlot")) == slot &&
         *((uint8_t *)b + location("responseChannel")) == channel) {
@@ -67,11 +79,16 @@ static void responseHook(void *b, const Vec &v) {
     }
     responseOrig(b, v);
 }
+// Capture the driver's transport-result field separately from the card's status word.
+// The current guard is the transmitting phase only, without slot/channel filtering.
 static void qmiHook(void *b, void *r) {
     if (phase == 3)
         qmiError = *(int *)((char *)r + location("qmiError"));
     qmiOrig(b, r);
 }
+// Defer automatic close for our matching opening/transmitting session, retaining
+// its completion callback so subsequent APDUs can reuse the channel. Report an open
+// session to the waiter; unrelated closes and explicit closing pass through.
 static void closeHook(void *self, int s, uint8_t c, bool ok, const Fn &cb) {
     int p = phase;
     if ((p == 1 || p == 3) && self == driver && s == slot && c == channel) {
@@ -83,6 +100,9 @@ static void closeHook(void *self, int s, uint8_t c, bool ok, const Fn &cb) {
     }
     closeOrig(self, s, c, ok, cb);
 }
+// Run the original high-level completion handler before updating bridge state.
+// Wake explicit-close waiters, or opening waiters whose flow ended without a
+// retained channel. Direct sessions use their own completion callback below.
 static void completionHook(void *self, bool *ok) {
     completionOrig(self, ok);
     if (phase == 4) {
@@ -95,16 +115,23 @@ static void completionHook(void *self, bool *ok) {
 }
 static void *(*serviceMapOrig)(void *);
 static void *(*serviceMapMutableOrig)(void *);
+// Observe the Registry service map returned to CommCenter without changing it.
+// Bounded controller discovery happens later, outside this getter hook.
 static void *serviceMapHook(void *self) {
     void *m = serviceMapOrig(self);
     registryMap = m;
     return m;
 }
+// Capture the same Registry map through the mutable getter when that export exists.
+// Preserve the original return value and defer object inspection to ensureInterface.
 static void *serviceMapMutableHook(void *self) {
     void *m = serviceMapMutableOrig(self);
     registryMap = m;
     return m;
 }
+// Reuse the cached controller, or discover one unique live controller from the
+// captured Registry map and validate its driver/slot layout. Failure leaves iface
+// unset so a later request can retry while CommCenter finishes initialization.
 static bool ensureInterface() {
     if (iface)
         return true;
@@ -119,12 +146,20 @@ static bool ensureInterface() {
     iface = (void *)object;
     return true;
 }
+// Construct a callable signed function pointer for a resolved entry point.
+// Signing does not validate the address or private ABI; discovery and the caller's
+// function type must already agree with the current driver implementation.
 template <typename T> static T signedFn(uintptr_t p) {
     return (T)ptrauth_sign_unauthenticated((void *)p, ptrauth_key_function_pointer, 0);
 }
+// Wait up to 25 seconds for one asynchronous driver completion signal.
+// A timeout neither resets the session nor proves that a card command did not run.
 static bool awaitDone() {
     return dispatch_semaphore_wait(event, dispatch_time(DISPATCH_TIME_NOW, 25 * NSEC_PER_SEC)) == 0;
 }
+// Close an idle session trivially, or invoke the original close for an open session.
+// Keep the retained callback and any owned response vector until completion is
+// observed; a busy state or timeout returns failure without claiming session release.
 static bool closeSession() {
     if (phase == 0)
         return true;
@@ -143,9 +178,14 @@ static bool closeSession() {
     }
     return ok;
 }
+// Build an operation-level error reply. networkLoop adds the matching request ID.
 static NSDictionary *fail(NSString *s) {
     return @{@"ok" : @NO, @"error" : s};
 }
+// Enumerate assigned logical/hardware slots from the validated live SimInfo vector.
+// Bound memory reads, skip unassigned placeholders and reject ambiguous mappings.
+// Return nil on discovery/read failure; an empty array is a valid empty enumeration.
+// Readiness is modem metadata, not proof that a slot contains a manageable eUICC.
 static NSArray *availableSlots() {
     if (!ensureInterface())
         return nil;
@@ -185,6 +225,9 @@ static NSArray *availableSlots() {
         }];
     return result;
 }
+// Resolve exactly one assigned logical slot to its hardware ID and readiness flag.
+// Output references are meaningful only when the lookup succeeds; never fall back
+// to another card when the requested slot is absent or enumeration fails.
 static bool slotInfo(int requested, int &hardware, bool &ready) {
     int matches = 0;
     for (NSDictionary *entry in availableSlots()) {
@@ -196,6 +239,10 @@ static bool slotInfo(int requested, int &hardware, bool &ready) {
     }
     return matches == 1;
 }
+// Dispatch one authenticated app request against the single retained session.
+// Resolver/status remain diagnostic when compatibility fails; slot enumeration sends
+// no APDUs. Opening validates the ISD-R AID and slot, transmission returns raw card
+// bytes, and closing releases the session. networkLoop serializes these requests.
 static NSDictionary *handle(NSDictionary *q) {
     NSString *op = q[@"op"];
     if ([op isEqual:@"resolver"]) {
@@ -260,6 +307,8 @@ static NSDictionary *handle(NSDictionary *q) {
         logicalSlot = requested;
         slot = hardware;
         if (!ready) {
+            // An inactive SIM may still expose ISD-R through the direct driver path.
+            // Own the response vector here instead of borrowing the sender's vector.
             uintptr_t rawDriver = 0;
             auto fw = std::atomic_load(&firmware);
             if (!SHReadMemory((uintptr_t)iface.load() + fw->driverMember.load(), &rawDriver, 8))
@@ -270,6 +319,9 @@ static NSDictionary *handle(NSDictionary *q) {
             directSession = true;
             directResponse = std::make_shared<Vec>();
             responseVector = directResponse.get();
+            // Direct-path completion keeps a transmitted channel open, or marks an
+            // opening/closing flow finished. Ignore callbacks while no direct session
+            // is retained.
             retained = [](bool) {
                 if (!directSession)
                     return;
@@ -284,6 +336,7 @@ static NSDictionary *handle(NSDictionary *q) {
             Vec aid((uint8_t *)d.bytes, (uint8_t *)d.bytes + d.length);
             using Start = void (*)(void *, int, const Vec &, void (^)(int, uint8_t), const Fn &);
             phase = 1;
+            // Record the channel allocated by the direct-open callback and wake open.
             void (^opened)(int, uint8_t) = ^(int, uint8_t c) {
                 channel = c;
                 phase = 2;
@@ -306,8 +359,11 @@ static NSDictionary *handle(NSDictionary *q) {
                 @"hardwareSlot" : @(slot)
             };
         }
+        // The normal sender accepts an AID, not raw APDU bytes. Its command/close
+        // hooks capture and retain the session needed by later transmit requests.
         auto aid = std::make_shared<Vec>((uint8_t *)d.bytes, (uint8_t *)d.bytes + d.length);
         auto out = std::make_shared<Vec>();
+        // Satisfy the sender's user-completion interface; hooks track bridge state.
         Fn cb = [](bool) {};
         using Sender =
             void (*)(void *, int, std::shared_ptr<Vec>, uint8_t, std::shared_ptr<Vec>, Fn);
@@ -337,6 +393,8 @@ static NSDictionary *handle(NSDictionary *q) {
         }
         qmiError = 0;
         phase = 3;
+        // Trigger the existing command path with 0xc0; encodeHook replaces the final
+        // outgoing bytes with pending, so the actual APDU can have another INS.
         commandOrig(driver, slot, channel, 0xc0, *responseVector, retained);
         if (!awaitDone())
             return fail(@"Card response timed out. Do not repeat the write.");
@@ -347,6 +405,10 @@ static NSDictionary *handle(NSDictionary *q) {
     }
     return fail(@"Unknown request.");
 }
+// Maintain the extension's loopback client connection to the foreground app.
+// Authenticate both peers with the build pairing key, dispatch requests sequentially
+// and echo their IDs. On disconnect, attempt session cleanup before reconnecting;
+// an in-flight command is never replayed merely because its socket reply was lost.
 static void networkLoop() {
     while (1) {
         @autoreleasepool {
@@ -400,13 +462,20 @@ static void networkLoop() {
         }
     }
 }
+// Initialize the bridge once, then run IPC and runtime discovery on background queues.
+// Install hooks only for a complete ABI-compatible plan and publish compatibility
+// only after required original pointers exist. Live-object checks still happen on
+// requests; starting the bridge or resolving firmware does not itself send an APDU.
 extern "C" void estk_apdu_start(void) {
     static dispatch_once_t once;
+    // Share one semaphore, network loop and hook installation across all callers.
     dispatch_once(&once, ^{
         event = dispatch_semaphore_create(0);
+        // Keep socket waits off CommCenter's calling thread and the resolver queue.
         dispatch_async(dispatch_get_global_queue(0, 0), ^{
             networkLoop();
         });
+        // Discover and install asynchronously; diagnostics can be served meanwhile.
         dispatch_async(dispatch_get_global_queue(0, 0), ^{
             @autoreleasepool {
                 auto fw = SHResolveFirmware();
