@@ -436,6 +436,7 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
 @property(nonatomic, strong) SHLPA *lpa;
 @property(nonatomic, strong) NSOperationQueue *queue;
 @property(nonatomic, strong) NSDictionary *card;
+@property(nonatomic, copy) NSArray<NSDictionary *> *slots;
 @property(nonatomic, strong) UILabel *statusLabel;
 @property(nonatomic, strong) UILabel *cardLabel;
 @property(nonatomic, strong) UIActivityIndicatorView *spinner;
@@ -443,6 +444,8 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
 @property(nonatomic, strong) UIButton *codeButton;
 @property(nonatomic) BOOL busy;
 @property(nonatomic, copy) NSString *pendingActivationCode;
+@property(nonatomic, copy) NSString *pendingActivationEID;
+@property(nonatomic, copy) NSString *pickerExpectedEID;
 @property(nonatomic) UIBackgroundTaskIdentifier background;
 @end
 @implementation RootVC
@@ -457,8 +460,7 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
     self.tableView.backgroundColor = UIColor.systemGroupedBackgroundColor;
     self.tableView.rowHeight = 90;
     self.lpa = [SHLPA new];
-    self.queue = [NSOperationQueue new];
-    self.queue.maxConcurrentOperationCount = 1;
+    self.queue = [SHLPA operationQueue];
     self.background = UIBackgroundTaskInvalid;
     __weak RootVC *weak = self;
     self.lpa.progress = ^(NSString *s) {
@@ -471,6 +473,12 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
                                          style:UIBarButtonItemStylePlain
                                         target:self
                                         action:@selector(info)];
+    self.navigationItem.leftBarButtonItem =
+        [[UIBarButtonItem alloc] initWithTitle:SHL(@"Card slots")
+                                         style:UIBarButtonItemStylePlain
+                                        target:self
+                                        action:@selector(chooseSlot)];
+    self.navigationItem.leftBarButtonItem.accessibilityIdentifier = @"slots.choose";
     self.refreshControl = [UIRefreshControl new];
     [self.refreshControl addTarget:self
                             action:@selector(refreshCard)
@@ -564,8 +572,9 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
 }
 - (void)setWorking:(BOOL)b {
     self.busy = b;
-    self.scanButton.enabled = !b;
-    self.codeButton.enabled = !b;
+    self.scanButton.enabled = !b && self.card != nil;
+    self.codeButton.enabled = !b && self.card != nil;
+    self.navigationItem.leftBarButtonItem.enabled = !b;
     self.tabBarController.tabBar.userInteractionEnabled = !b;
     if (b) {
         [self.spinner startAnimating];
@@ -598,29 +607,142 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
                                         handler:nil]];
     [self presentViewController:a animated:YES completion:nil];
 }
+- (void)selectSlot:(NSInteger)slot {
+    if (self.busy)
+        return;
+    [NSUserDefaults.standardUserDefaults setInteger:slot forKey:@"SHPreferredSlot"];
+    self.pendingActivationCode = nil;
+    self.pendingActivationEID = nil;
+    self.card = nil;
+    [self refreshCard];
+}
+- (void)chooseSlot {
+    if (self.busy || self.presentedViewController)
+        return;
+    if (!self.slots.count) {
+        [self refreshCard];
+        return;
+    }
+    UIAlertController *sheet = [UIAlertController
+        alertControllerWithTitle:SHL(@"Card slots")
+                         message:
+                             SHL(@"Select a slot, or automatically find a readable eUICC. Changing slots does not enable or disable a profile.")
+                  preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:SHL(@"Automatic detection")
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(UIAlertAction *action) {
+                                                [self selectSlot:0];
+                                            }]];
+    for (NSDictionary *entry in self.slots) {
+        NSInteger slot = [entry[@"logicalSlot"] integerValue];
+        NSString *title = [NSString stringWithFormat:SHL(@"Slot %ld"), (long)slot];
+        [sheet addAction:[UIAlertAction actionWithTitle:title
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(UIAlertAction *action) {
+                                                    [self selectSlot:slot];
+                                                }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:SHL(@"Cancel")
+                                              style:UIAlertActionStyleCancel
+                                            handler:nil]];
+    sheet.popoverPresentationController.barButtonItem = self.navigationItem.leftBarButtonItem;
+    [self presentViewController:sheet animated:YES completion:nil];
+}
 - (void)refreshCard {
     if (self.busy) {
         [self.refreshControl endRefreshing];
         return;
     }
+    // Each refresh creates a new identity context. Existing subpages keep their old,
+    // EID-bound engine, so changing slots cannot retarget a queued operation.
+    void (^progress)(NSString *) = self.lpa.progress;
+    self.card = nil;
+    self.cardLabel.text = SHL(@"Removable eUICC · Waiting for connection");
+    self.statusLabel.text = SHL(@"Discovering card slots…");
     [self setWorking:YES];
+    NSInteger preferred = [NSUserDefaults.standardUserDefaults integerForKey:@"SHPreferredSlot"];
+    NSString *preferredEID = [NSUserDefaults.standardUserDefaults stringForKey:@"SHLastCardEID"];
     [self.queue addOperationWithBlock:^{
-        NSError *e = nil;
-        NSDictionary *r = [self.lpa readCard:&e];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self setWorking:NO];
-            if (r) {
-                self.card = r;
-                self.cardLabel.text =
-                    [NSString stringWithFormat:SHL(@"Removable eUICC · %lu profiles"),
-                                               (unsigned long)[r[@"profiles"] count]];
-                self.statusLabel.text = SHL(@"Connected · Pull to refresh");
-                Record(SHL(@"Profile list updated."));
-                [self.tableView reloadData];
+        NSError *error = nil;
+        NSArray *slots = [SHLPA availableSlots:&error];
+        NSDictionary *card = nil, *firstCard = nil;
+        SHLPA *selected = nil, *firstEngine = nil;
+        BOOL foundRequested = NO;
+        NSUInteger readableCount = 0;
+        for (NSDictionary *entry in slots) {
+            int slot = [entry[@"logicalSlot"] intValue];
+            if (preferred > 0 && preferred != slot)
+                continue;
+            foundRequested = YES;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.statusLabel.text =
+                    [NSString stringWithFormat:SHL(@"Reading slot %ld…"), (long)slot];
+            });
+            SHLPA *engine = [[SHLPA alloc] initWithSlot:slot];
+            engine.progress = progress;
+            NSError *readError = nil;
+            NSDictionary *result = [engine readCard:&readError];
+            if (result) {
+                readableCount++;
+                if (!firstCard) {
+                    firstCard = result;
+                    firstEngine = engine;
+                }
+                if (preferred > 0 ||
+                    (preferredEID.length && [result[@"eid"] isEqual:preferredEID])) {
+                    card = result;
+                    selected = engine;
+                    break;
+                }
             } else {
-                self.statusLabel.text = e.localizedDescription;
-                [[SHTraceLog shared] error:e];
+                error = readError;
+                if (preferred > 0)
+                    selected = engine;
+                NSDictionary *state = [[SHBridge shared] request:@{
+                    @"op" : @"status",
+                    @"slot" : @(slot)
+                }
+                                                           error:nil];
+                if (!state || [state[@"phase"] integerValue] != 0)
+                    break;
             }
+        }
+        if (!card && preferred == 0 && readableCount == 1 && firstCard) {
+            card = firstCard;
+            selected = firstEngine;
+        }
+        if (!card && preferred == 0 && readableCount > 1)
+            error =
+                SHError(30, @"More than one eUICC was found. Select the slot you want to manage.");
+        if (!card && !error)
+            error = SHError(
+                30,
+                foundRequested
+                    ? @"No readable eUICC was found. Check the cards and refresh, or select another slot."
+                    : @"The selected slot is unavailable. Refresh the slot list or choose automatic detection.");
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.slots = slots ?: @[];
+            self.card = card;
+            self.lpa = selected ?: [[SHLPA alloc] initWithSlot:0];
+            self.lpa.progress = progress;
+            if (card) {
+                [NSUserDefaults.standardUserDefaults setObject:card[@"eid"]
+                                                        forKey:@"SHLastCardEID"];
+                self.cardLabel.text = [NSString
+                    stringWithFormat:SHL(@"Slot %ld · eUICC · %lu profiles"), (long)self.lpa.slot,
+                                     (unsigned long)[card[@"profiles"] count]];
+                self.navigationItem.leftBarButtonItem.title =
+                    [NSString stringWithFormat:SHL(@"Slot %ld"), (long)self.lpa.slot];
+                self.statusLabel.text = SHL(@"Connected · Pull to refresh");
+                Record([NSString
+                    stringWithFormat:@"Profile list updated for logical slot %d.", self.lpa.slot]);
+            } else {
+                self.cardLabel.text = SHL(@"No readable eUICC in the selected slot");
+                self.navigationItem.leftBarButtonItem.title = SHL(@"Card slots");
+                self.statusLabel.text = error.localizedDescription;
+                [[SHTraceLog shared] error:error];
+            }
+            [self setWorking:NO];
         });
     }];
 }
@@ -672,7 +794,9 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
     [t deselectRowAtIndexPath:i animated:YES];
     if (self.busy || ![self.card[@"profiles"] count])
         return;
-    NSDictionary *p = self.card[@"profiles"][i.row];
+    NSMutableDictionary *p = [self.card[@"profiles"][i.row] mutableCopy];
+    p[@"_targetSlot"] = @(self.lpa.slot);
+    p[@"_targetEID"] = self.lpa.expectedEID ?: @"";
     UIAlertController *a = [UIAlertController
         alertControllerWithTitle:p[@"name"]
                          message:
@@ -713,7 +837,17 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
     a.popoverPresentationController.sourceRect = [t cellForRowAtIndexPath:i].bounds;
     [self presentViewController:a animated:YES completion:nil];
 }
+- (SHLPA *)engineForProfile:(NSDictionary *)profile {
+    int slot = profile[@"_targetSlot"] ? [profile[@"_targetSlot"] intValue] : self.lpa.slot;
+    NSString *eid = profile[@"_targetEID"] ?: self.lpa.expectedEID;
+    if (slot == self.lpa.slot && [eid isEqual:self.lpa.expectedEID])
+        return self.lpa;
+    SHLPA *engine = [[SHLPA alloc] initWithSlot:slot expectedEID:eid];
+    engine.progress = self.lpa.progress;
+    return engine;
+}
 - (void)confirmState:(NSDictionary *)p {
+    SHLPA *engine = [self engineForProfile:p];
     BOOL enabled = ![p[@"enabled"] boolValue];
     UIAlertController *a = [UIAlertController
         alertControllerWithTitle:enabled ? SHL(@"Enable this eSIM?") : SHL(@"Disable this eSIM?")
@@ -731,9 +865,9 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
                                             [self
                                                 perform:^{
                                                     NSError *e = nil;
-                                                    [self.lpa setProfile:p[@"iccid"]
-                                                                 enabled:enabled
-                                                                   error:&e];
+                                                    [engine setProfile:p[@"iccid"]
+                                                               enabled:enabled
+                                                                 error:&e];
                                                     return e;
                                                 }
                                                 success:enabled ? SHL(@"Profile enabled")
@@ -742,6 +876,7 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
     [self presentViewController:a animated:YES completion:nil];
 }
 - (void)renameProfileUI:(NSDictionary *)p {
+    SHLPA *engine = [self engineForProfile:p];
     UIAlertController *a = [UIAlertController
         alertControllerWithTitle:SHL(@"Rename profile")
                          message:SHL(@"Leave blank to restore the original name.")
@@ -758,7 +893,7 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
                                             [self
                                                 perform:^{
                                                     NSError *e = nil;
-                                                    [self.lpa
+                                                    [engine
                                                         renameProfile:p[@"iccid"]
                                                                  name:a.textFields[0].text ?: @""
                                                                 error:&e];
@@ -769,6 +904,7 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
     [self presentViewController:a animated:YES completion:nil];
 }
 - (void)confirmDelete:(NSDictionary *)p {
+    SHLPA *engine = [self engineForProfile:p];
     UIAlertController *a = [UIAlertController
         alertControllerWithTitle:SHL(@"Delete profile?")
                          message:
@@ -788,7 +924,7 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
                             [self
                                 perform:^{
                                     NSError *e = nil;
-                                    BOOL ok = [self.lpa deleteProfile:p[@"iccid"] error:&e];
+                                    BOOL ok = [engine deleteProfile:p[@"iccid"] error:&e];
                                     return e
                                                ?: (!ok ? [NSError
                                                              errorWithDomain:@"SIMHarbor"
@@ -841,6 +977,7 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
                                style:UIAlertActionStyleDefault
                              handler:^(UIAlertAction *x) {
                                  PHPickerConfiguration *config = [PHPickerConfiguration new];
+                                 self.pickerExpectedEID = self.lpa.expectedEID;
                                  config.filter = PHPickerFilter.imagesFilter;
                                  config.selectionLimit = 1;
                                  PHPickerViewController *p =
@@ -858,9 +995,10 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
 - (void)camera {
     ScannerVC *s = [ScannerVC new];
     __weak RootVC *w = self;
+    NSString *expectedEID = self.lpa.expectedEID;
     s.result = ^(NSString *code) {
         if (code)
-            [w input:code];
+            [w input:code expectedEID:expectedEID];
     };
     [self presentViewController:[[UINavigationController alloc] initWithRootViewController:s]
                        animated:YES
@@ -868,6 +1006,8 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
 }
 - (void)picker:(PHPickerViewController *)picker
     didFinishPicking:(NSArray<PHPickerResult *> *)results {
+    NSString *expectedEID = self.pickerExpectedEID;
+    self.pickerExpectedEID = nil;
     [picker
         dismissViewControllerAnimated:YES
                            completion:^{
@@ -884,7 +1024,8 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
                                                                       : nil;
                                                              dispatch_async(dispatch_get_main_queue(), ^{
                                                                  if (value)
-                                                                     [self input:value];
+                                                                     [self input:value
+                                                                         expectedEID:expectedEID];
                                                                  else
                                                                      [self
                                                                          message:
@@ -901,6 +1042,10 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
     [self input:@""];
 }
 - (void)input:(NSString *)code {
+    [self input:code expectedEID:self.lpa.expectedEID];
+}
+- (void)input:(NSString *)code expectedEID:(NSString *)eid {
+    self.pendingActivationEID = eid;
     self.pendingActivationCode = code ?: @"";
     [self presentPendingActivationCode];
 }
@@ -909,11 +1054,25 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
         self.navigationController.topViewController != self || self.presentedViewController)
         return;
     NSString *code = self.pendingActivationCode;
+    NSString *expectedEID = self.pendingActivationEID;
     self.pendingActivationCode = nil;
+    self.pendingActivationEID = nil;
+    if (!self.card || !expectedEID.length || ![expectedEID isEqual:self.lpa.expectedEID]) {
+        [self
+            message:SHL(@"Card slots")
+             detail:
+                 SHL(@"The selected card changed while entering the activation code. Select the card and scan or enter the code again.")];
+        return;
+    }
+    NSString *suffix =
+        [expectedEID substringFromIndex:expectedEID.length > 6 ? expectedEID.length - 6 : 0];
     UIAlertController *a = [UIAlertController
         alertControllerWithTitle:SHL(@"Add eSIM")
                          message:
-                             SHL(@"Download to the removable card. The profile remains disabled.")
+                             [NSString
+                                 stringWithFormat:
+                                     SHL(@"Download to slot %ld (EID ending %@). The profile remains disabled."),
+                                     (long)self.lpa.slot, suffix]
                   preferredStyle:UIAlertControllerStyleAlert];
     [a addTextFieldWithConfigurationHandler:^(UITextField *t) {
         t.placeholder = SHL(@"LPA:1$server$activation-token");
@@ -947,11 +1106,19 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
     [self presentViewController:a animated:YES completion:nil];
 }
 - (void)downloadCode:(NSString *)activation confirmation:(NSString *)confirmation {
+    if (!self.card || !self.lpa.expectedEID.length) {
+        [self
+            message:SHL(@"Card slots")
+             detail:
+                 SHL(@"Select an eUICC slot and refresh its profile list before this operation.")];
+        return;
+    }
+    SHLPA *engine = self.lpa;
     void (^begin)(void) = ^{
         [self
             perform:^{
                 NSError *e = nil;
-                BOOL ok = [self.lpa download:activation confirmation:confirmation error:&e];
+                BOOL ok = [engine download:activation confirmation:confirmation error:&e];
                 return e
                            ?: (!ok ? [NSError errorWithDomain:@"SIMHarbor"
                                                          code:1
@@ -979,7 +1146,7 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
                                           style:UIAlertActionStyleDefault
                                         handler:^(UIAlertAction *x) {
                                             NSError *e = nil;
-                                            if ([self.lpa allowOwnNetworking:&e])
+                                            if ([engine allowOwnNetworking:&e])
                                                 begin();
                                             else
                                                 [self
@@ -1035,6 +1202,9 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
     [a addAction:[UIAlertAction actionWithTitle:SHL(@"Cancel")
                                           style:UIAlertActionStyleCancel
                                         handler:nil]];
+    a.actions[0].enabled = self.card != nil;
+    a.actions[1].enabled = self.card != nil;
+    a.actions[3].enabled = self.card != nil;
     a.popoverPresentationController.barButtonItem = self.navigationItem.rightBarButtonItem;
     [self presentViewController:a animated:YES completion:nil];
 }
@@ -1173,25 +1343,77 @@ static int SHDiagnose(int argc, char **argv) {
             return [reply[@"report"][@"codeResolved"] boolValue] ? 0 : 15;
         }
         NSError *e = nil;
-        NSDictionary *state = nil;
+        NSArray *slots = nil;
         for (int i = 0; i < 20; i++) {
-            state = [[SHBridge shared] request:@{@"op" : @"status"} error:&e];
-            if ([state[@"ready"] boolValue])
+            slots = [SHLPA availableSlots:&e];
+            if (slots.count)
                 break;
             [NSThread sleepForTimeInterval:1];
         }
-        if (!state || ![state[@"ready"] boolValue]) {
-            fprintf(stderr, "Bridge unavailable: %s\n",
-                    (e.localizedDescription ?: state.description).UTF8String);
+        if (!slots.count) {
+            fprintf(stderr, "Slot discovery failed: %s\n", e.localizedDescription.UTF8String);
             return 2;
         }
-        SHLPA *lpa = [SHLPA new];
-        lpa.progress = ^(NSString *stage) {
-            fprintf(stderr, "%s\n", SHEnglish(stage).UTF8String);
-        };
-        NSDictionary *before = [lpa readCard:&e];
+        int requestedSlot = 0;
+        for (int i = 2; i < argc; i++)
+            if (!strncmp(argv[i], "--slot=", 7))
+                requestedSlot = atoi(argv[i] + 7);
+        BOOL snapshotAll = strcmp(argv[1], "--slots-check") == 0;
+        BOOL writeTest = strcmp(argv[1], "--restore-switch-baseline") == 0 ||
+                         strcmp(argv[1], "--verify-roundtrip") == 0 ||
+                         strcmp(argv[1], "--verify-switch-roundtrip") == 0;
+        if (writeTest && requestedSlot < 1) {
+            fprintf(stderr, "Write tests require an explicit --slot=N.\n");
+            return 2;
+        }
+        SHLPA *lpa = nil;
+        NSDictionary *before = nil;
+        NSMutableArray *probes = [NSMutableArray array];
+        for (NSDictionary *entry in slots) {
+            int currentSlot = [entry[@"logicalSlot"] intValue];
+            if (requestedSlot > 0 && requestedSlot != currentSlot)
+                continue;
+            SHLPA *candidate = [[SHLPA alloc] initWithSlot:currentSlot];
+            candidate.progress = ^(NSString *stage) {
+                fprintf(stderr, "Slot %d: %s\n", currentSlot, SHEnglish(stage).UTF8String);
+            };
+            NSError *probeError = nil;
+            NSDictionary *card = [candidate readCard:&probeError];
+            NSMutableDictionary *probe = [entry mutableCopy];
+            probe[@"euiccReadable"] = @(card != nil);
+            if (card)
+                probe[@"card"] = card;
+            else
+                probe[@"error"] = probeError.localizedDescription ?: @"Card read failed";
+            [probes addObject:probe];
+            if (card && !before) {
+                before = card;
+                lpa = candidate;
+            }
+            if (!snapshotAll && (card || requestedSlot > 0)) {
+                e = probeError;
+                break;
+            }
+            NSDictionary *state = [[SHBridge shared] request:@{
+                @"op" : @"status",
+                @"slot" : @(currentSlot)
+            }
+                                                       error:nil];
+            if (!state || [state[@"phase"] integerValue] != 0)
+                break;
+        }
+        if (snapshotAll) {
+            NSData *json = [NSJSONSerialization
+                dataWithJSONObject:@{@"slots" : probes}
+                           options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys
+                             error:nil];
+            fwrite(json.bytes, 1, json.length, stdout);
+            printf("\n");
+            return probes.count ? 0 : 2;
+        }
         if (!before) {
-            fprintf(stderr, "%s\n", e.localizedDescription.UTF8String);
+            fprintf(stderr, "No readable eUICC in the requested slot: %s\n",
+                    e.localizedDescription.UTF8String);
             return 3;
         }
         printf("Native card read OK: %lu profiles\n", (unsigned long)[before[@"profiles"] count]);
@@ -1219,6 +1441,16 @@ static int SHDiagnose(int argc, char **argv) {
         if (strcmp(argv[1], "--restore-switch-baseline") == 0) {
             NSArray *original =
                 [NSUserDefaults.standardUserDefaults arrayForKey:@"SHTestSwitchBaseline"];
+            NSString *baselineEID =
+                [NSUserDefaults.standardUserDefaults stringForKey:@"SHTestSwitchBaselineEID"];
+            NSInteger baselineSlot =
+                [NSUserDefaults.standardUserDefaults integerForKey:@"SHTestSwitchBaselineSlot"];
+            if (![baselineEID isEqual:before[@"eid"]] || baselineSlot != lpa.slot) {
+                fprintf(
+                    stderr,
+                    "Saved baseline does not match this card and slot; no restore attempted.\n");
+                return 10;
+            }
             if (!original.count) {
                 fprintf(stderr, "No saved switch baseline\n");
                 return 10;
@@ -1249,6 +1481,8 @@ static int SHDiagnose(int argc, char **argv) {
                 return 13;
             }
             [NSUserDefaults.standardUserDefaults removeObjectForKey:@"SHTestSwitchBaseline"];
+            [NSUserDefaults.standardUserDefaults removeObjectForKey:@"SHTestSwitchBaselineEID"];
+            [NSUserDefaults.standardUserDefaults removeObjectForKey:@"SHTestSwitchBaselineSlot"];
             printf("Original profile baseline restored and test profile removed\n");
             return 0;
         }
@@ -1282,6 +1516,10 @@ static int SHDiagnose(int argc, char **argv) {
             if (switchTest) {
                 [NSUserDefaults.standardUserDefaults setObject:before[@"profiles"]
                                                         forKey:@"SHTestSwitchBaseline"];
+                [NSUserDefaults.standardUserDefaults setObject:before[@"eid"]
+                                                        forKey:@"SHTestSwitchBaselineEID"];
+                [NSUserDefaults.standardUserDefaults setInteger:lpa.slot
+                                                         forKey:@"SHTestSwitchBaselineSlot"];
                 [NSUserDefaults.standardUserDefaults synchronize];
                 @try {
                     if (![lpa renameProfile:added[0][@"iccid"] name:@"SIMHarbor Test" error:&e]) {
@@ -1328,6 +1566,8 @@ static int SHDiagnose(int argc, char **argv) {
             }
             printf("Native delete verified: original profile list restored\n");
             [NSUserDefaults.standardUserDefaults removeObjectForKey:@"SHTestSwitchBaseline"];
+            [NSUserDefaults.standardUserDefaults removeObjectForKey:@"SHTestSwitchBaselineEID"];
+            [NSUserDefaults.standardUserDefaults removeObjectForKey:@"SHTestSwitchBaselineSlot"];
             if (!switchPassed)
                 return 9;
         }
@@ -1355,7 +1595,8 @@ int main(int argc, char *argv[]) {
     if (argc > 1 && strcmp(argv[1], "--qr-check") == 0)
         return SHQRCheck();
     if (argc > 1 &&
-        (strcmp(argv[1], "--snapshot-check") == 0 || strcmp(argv[1], "--resolver-check") == 0 ||
+        (strcmp(argv[1], "--slots-check") == 0 || strcmp(argv[1], "--snapshot-check") == 0 ||
+         strcmp(argv[1], "--resolver-check") == 0 ||
          strcmp(argv[1], "--restore-switch-baseline") == 0 || strcmp(argv[1], "--diagnose") == 0 ||
          (strcmp(argv[1], "--verify-roundtrip") == 0 ||
           strcmp(argv[1], "--verify-switch-roundtrip") == 0)))

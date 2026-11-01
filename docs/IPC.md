@@ -2,7 +2,7 @@
 
 **English** | [简体中文](IPC.zh-CN.md)
 
-This document describes the protocol introduced in SIMHarbor 1.3.8 with unchanged framing/authentication through 1.3.14. It is an internal protocol, without a negotiated protocol version. Sources: [app bridge](../viewer/Bridge.m), [extension](../tweak/Apdu.mm), [wire helpers](../shared/Wire.h), and [pairing generator](../scripts/generate_pairing_key.py).
+This document describes the protocol introduced in SIMHarbor 1.3.8 with unchanged framing/authentication through 1.3.15. It is an internal protocol, without a negotiated protocol version. Sources: [app bridge](../viewer/Bridge.m), [extension](../tweak/Apdu.mm), [wire helpers](../shared/Wire.h), and [pairing generator](../scripts/generate_pairing_key.py).
 
 ## Transport and ownership
 
@@ -45,12 +45,13 @@ The app adds a fresh UUID string as `id` to each request. The extension echoes i
 | `op` | Request fields | Successful reply fields, in addition to `id` and `ok` |
 | --- | --- | --- |
 | `resolver` | None | `report`: resolver diagnostic object |
-| `status` | None | `compatible`: ABI/hooks ready; `ready`: interface and selected slot could be resolved; `phase`: state integer; `resolver`: diagnostic object |
-| `open` | `slot`: logical slot 1 or 2; `aid`: ISD-R AID hex | `channel`: allocated logical channel number |
+| `slots` | None | `slots`: assigned entries with `logicalSlot`, `hardwareSlot`, `simReady`; `phase`: state integer |
+| `status` | Optional `slot`: logical ID | `compatible`: ABI/hooks ready; `ready`: interface and selected slot could be resolved; `phase`: state integer; `resolver`: diagnostic object; `logicalSlot`, `hardwareSlot`, `simReady` when resolved |
+| `open` | `slot`: positive assigned logical ID discovered at runtime; `aid`: ISD-R AID hex | `channel`: allocated logical channel number; `logicalSlot`, `hardwareSlot`: resolved mapping |
 | `transmit` | `hex`: command APDU, 4–261 bytes | `hex`: response APDU including trailing SW1/SW2 |
 | `close` | None | No additional fields |
 
-The only accepted AID is `a0000005591010ffffffff8900000100`. Slot numbers are logical identifiers; the resolver maps them to driver hardware slots. `status.ready` means object/slot availability, **not** that the modem reports an active SIM or that an eSIM profile is enabled. The initial selected logical slot is 2; `open` changes it. Resolver report fields are implementation diagnostics, not a stable external schema; see [Patchfinder](PATCHFINDER.md).
+The only accepted AID is `a0000005591010ffffffff8900000100`. Slot numbers are logical identifiers; the resolver maps them to driver hardware slots. `status.ready` means object/slot availability, **not** that the modem reports an active SIM or that an eSIM profile is enabled. There is no fixed initial slot 2; the first status query can choose the first assigned slot, and `open` selects its requested target. `slots` skips unassigned logical IDs and sends no APDUs or channel opens; `simReady` also does not establish eUICC support. App automatic detection additionally probes assigned slots read-only and checks EID identity; see [multiple slots](MULTI_SLOT.md). Resolver report fields are implementation diagnostics, not a stable external schema; see [Patchfinder](PATCHFINDER.md).
 
 `resolver` and `status` remain available if runtime discovery fails. Other operations fail with `Runtime compatibility checks did not pass. Open Firmware resolver for details. No card command was sent.` until the adapter/signature/plan checks pass and hooks install. UUIDs never decide eligibility; live-object/slot checks are also required before opening a channel. An inactive SIM can use the driver's direct management-channel path. Listing, downloading, enabling, disabling, renaming, deleting, notifications and custom DER commands are LPA operations in the app, expressed through `open` / `transmit` / `close`; they have no separate IPC opcodes.
 
@@ -58,7 +59,7 @@ Example request and reply (illustrative channel and ID):
 
 ```json
 {"id":"example-1","op":"open","slot":2,"aid":"a0000005591010ffffffff8900000100"}
-{"id":"example-1","ok":true,"channel":1}
+{"id":"example-1","ok":true,"channel":1,"logicalSlot":2,"hardwareSlot":2}
 ```
 
 An operation failure keeps the same ID:

@@ -281,3 +281,20 @@
 "HTTP transport failed." = "HTTP transport failed.";
 "Runtime compatibility checks did not pass. Open Firmware resolver for details. No card command was sent." = "Runtime compatibility checks did not pass. Open Firmware resolver for details. No card command was sent.";
 "Compatibility is detected at runtime from signatures, instructions and live objects. Device models, iOS versions and UUIDs are not allowlisted." = "Compatibility is detected at runtime from signatures, instructions and live objects. Device models, iOS versions and UUIDs are not allowlisted.";
+
+"Card slots" = "Card slots";
+"Automatic detection" = "Automatic detection";
+"Slot %ld" = "Slot %ld";
+"Select a slot, or automatically find a readable eUICC. Changing slots does not enable or disable a profile." = "Select a slot, or automatically find a readable eUICC. Changing slots does not enable or disable a profile.";
+"Discovering card slots…" = "Discovering card slots…";
+"Reading slot %ld…" = "Reading slot %ld…";
+"Slot %ld · eUICC · %lu profiles" = "Slot %ld · eUICC · %lu profiles";
+"No readable eUICC in the selected slot" = "No readable eUICC in the selected slot";
+"No readable eUICC was found. Check the cards and refresh, or select another slot." = "No readable eUICC was found. Check the cards and refresh, or select another slot.";
+"The selected slot is unavailable. Refresh the slot list or choose automatic detection." = "The selected slot is unavailable. Refresh the slot list or choose automatic detection.";
+"Select an eUICC slot and refresh its profile list before this operation." = "Select an eUICC slot and refresh its profile list before this operation.";
+"The card in this slot has changed or is unavailable. Refresh and select the card again before continuing." = "The card in this slot has changed or is unavailable. Refresh and select the card again before continuing.";
+
+"More than one eUICC was found. Select the slot you want to manage." = "More than one eUICC was found. Select the slot you want to manage.";
+"The selected card changed while entering the activation code. Select the card and scan or enter the code again." = "The selected card changed while entering the activation code. Select the card and scan or enter the code again.";
+"Download to slot %ld (EID ending %@). The profile remains disabled." = "Download to slot %ld (EID ending %@). The profile remains disabled.";

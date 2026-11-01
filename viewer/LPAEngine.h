@@ -2,7 +2,12 @@
 @interface SHLPA : NSObject
 @property(nonatomic, copy) void (^progress)(NSString *stage);
 @property(nonatomic, copy) NSString *lastWarning;
-@property(nonatomic) int slot;
+@property(nonatomic, readonly) int slot;
+@property(nonatomic, copy, readonly) NSString *expectedEID;
+- (instancetype)initWithSlot:(int)slot;
+- (instancetype)initWithSlot:(int)slot expectedEID:(NSString *)eid;
++ (NSArray<NSDictionary *> *)availableSlots:(NSError **)error;
++ (NSOperationQueue *)operationQueue;
 @property(nonatomic, copy) NSString *downloadIMEI;
 - (BOOL)allowOwnNetworking:(NSError **)error;
 - (BOOL)checkNetwork:(NSError **)error;

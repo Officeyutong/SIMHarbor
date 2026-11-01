@@ -4,7 +4,7 @@
 
 在越狱 iPhone 上管理可移除 eUICC 的原生 App 与 CommCenter 扩展。开发者：[officeyutong](https://github.com/officeyutong)。
 
-支持卡片列表、下载、启用/停用、昵称、删除、通知管理、二维码相机/图片识别、连续及点击对焦、中英文界面、离线使用说明和原始 APDU/DER 控制台。日常运行不需要电脑或 Frida server。
+支持运行时卡槽发现、自动/手动选卡及 EID 身份核验、卡片列表、下载、启用/停用、昵称、删除、通知管理、二维码相机/图片识别、连续及点击对焦、中英文界面、离线使用说明和原始 APDU/DER 控制台。日常运行不需要电脑或 Frida server。
 
 兼容性由 Patchfinder 在运行时推断，不再使用机型、iOS 构建或镜像 UUID 白名单。代码计划完整且唯一、接口签名匹配后安装通道 Hook；活对象和卡槽检查通过后才发送卡片命令。UUID 仅用于诊断。iPhone 13 / iOS 17.2.1（21C66）、roothide 是实测基线，不是运行前提；其他固件仍需验证。App 目前使用 iOS 14+ 界面 API 和 ARM64 通道适配器。
 
@@ -41,7 +41,7 @@ GitHub Actions 文件：`.github/workflows/build.yml`。
 
 Release 要求三种构建全部成功，包含三个 `SIMHarbor_VERSION_方案.deb`、合并的 `SHA256SUMS` 以及各方案的构建信息。
 
-发布新版时修改 `VERSION`，并按需递增 `BUILD_NUMBER`。`control` 和 App 的 `Info.plist` 从 `packaging/` 模板自动生成，无需手动同步。源码版本目前为 1.3.14（构建号 1314），变更见[版本记录](docs/RELEASES.md)。
+发布新版时修改 `VERSION`，并按需递增 `BUILD_NUMBER`。`control` 和 App 的 `Info.plist` 从 `packaging/` 模板自动生成，无需手动同步。源码版本目前为 1.3.15（构建号 1315），变更见[版本记录](docs/RELEASES.md)。
 
 ## 测试与验证范围
 
@@ -58,6 +58,7 @@ Release 要求三种构建全部成功，包含三个 `SIMHarbor_VERSION_方案.
 App 仅内置双语使用说明，技术文章保留在仓库中：
 
 - [使用说明](docs/manual/zh-Hans/guide.md)
+- [多卡槽发现与路由](docs/MULTI_SLOT.zh-CN.md)
 - [Patchfinder 是怎么工作的](docs/PATCHFINDER.zh-CN.md)
 - [App 与 CommCenter 通信协议](docs/IPC.zh-CN.md)
 - [移植指南](docs/manual/zh-Hans/porting.md)

@@ -281,3 +281,20 @@
 "HTTP transport failed." = "网络请求失败，请检查网络连接；错误详情中包含具体原因。";
 "Runtime compatibility checks did not pass. Open Firmware resolver for details. No card command was sent." = "运行时兼容性检查未通过，请打开固件解析报告查看具体原因。尚未发送卡片命令。";
 "Compatibility is detected at runtime from signatures, instructions and live objects. Device models, iOS versions and UUIDs are not allowlisted." = "通过运行时签名、指令和活对象检查判断兼容性，不使用机型、iOS 版本或 UUID 白名单。";
+
+"Card slots" = "卡槽";
+"Automatic detection" = "自动识别";
+"Slot %ld" = "卡槽 %ld";
+"Select a slot, or automatically find a readable eUICC. Changing slots does not enable or disable a profile." = "请选择卡槽，或自动寻找可读取的 eUICC。切换卡槽不会启用或停用配置。";
+"Discovering card slots…" = "正在发现卡槽…";
+"Reading slot %ld…" = "正在读取卡槽 %ld…";
+"Slot %ld · eUICC · %lu profiles" = "卡槽 %ld · eUICC · %lu 张配置";
+"No readable eUICC in the selected slot" = "所选卡槽中没有可读取的 eUICC";
+"No readable eUICC was found. Check the cards and refresh, or select another slot." = "未找到可读取的 eUICC，请检查卡片后刷新，或选择其他卡槽。";
+"The selected slot is unavailable. Refresh the slot list or choose automatic detection." = "所选卡槽不可用，请刷新卡槽列表或选择自动识别。";
+"Select an eUICC slot and refresh its profile list before this operation." = "请先选择 eUICC 卡槽并刷新配置列表，再执行此操作。";
+"The card in this slot has changed or is unavailable. Refresh and select the card again before continuing." = "此卡槽中的卡片已更换或不可用，请刷新并重新选择卡片后再继续。";
+
+"More than one eUICC was found. Select the slot you want to manage." = "发现多张 eUICC，请选择要管理的卡槽。";
+"The selected card changed while entering the activation code. Select the card and scan or enter the code again." = "输入激活码期间所选卡片发生变化，请重新选择卡片，再扫码或输入激活码。";
+"Download to slot %ld (EID ending %@). The profile remains disabled." = "下载到卡槽 %ld（EID 尾号 %@），新配置保持停用。";

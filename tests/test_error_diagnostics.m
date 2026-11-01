@@ -1,9 +1,23 @@
 #import "../viewer/ErrorDiagnostics.h"
 #import "../viewer/Localization.h"
+#import "../viewer/LPAEngine.h"
 #import <Foundation/Foundation.h>
 
 int SHErrorDiagnosticsCheck(void) {
     @autoreleasepool {
+        SHLPA *first = [[SHLPA alloc] initWithSlot:1 expectedEID:@"fixture-card-one"];
+        SHLPA *second = [[SHLPA alloc] initWithSlot:2 expectedEID:@"fixture-card-two"];
+        if (first.slot != 1 || second.slot != 2 || [first.expectedEID isEqual:second.expectedEID] ||
+            [SHLPA operationQueue] != [SHLPA operationQueue] ||
+            [SHLPA operationQueue].maxConcurrentOperationCount != 1)
+            return 6;
+        SHLPA *unbound = [[SHLPA alloc] initWithSlot:1];
+        NSError *unboundError = nil;
+        if ([unbound download:@"LPA:1$example.invalid$fixture"
+                 confirmation:nil
+                        error:&unboundError] ||
+            unboundError.code != 30)
+            return 7;
         NSString *original = [NSUserDefaults.standardUserDefaults stringForKey:@"SHLanguage"];
         @try {
             for (NSString *language in @[ @"en", @"zh-Hans" ]) {

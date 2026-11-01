@@ -2,7 +2,7 @@
 
 [English](IPC.md) | **简体中文**
 
-本文描述 SIMHarbor 1.3.8 引入、至 1.3.14 保持报文边界及认证机制不变的通信协议。这是一套没有协议版本协商的内部协议。对应源码：[App 桥接层](../viewer/Bridge.m)、[扩展](../tweak/Apdu.mm)、[报文辅助函数](../shared/Wire.h)、[配对值生成器](../scripts/generate_pairing_key.py)。
+本文描述 SIMHarbor 1.3.8 引入、至 1.3.15 保持报文边界及认证机制不变的通信协议。这是一套没有协议版本协商的内部协议。对应源码：[App 桥接层](../viewer/Bridge.m)、[扩展](../tweak/Apdu.mm)、[报文辅助函数](../shared/Wire.h)、[配对值生成器](../scripts/generate_pairing_key.py)。
 
 ## 传输与连接方向
 
@@ -45,12 +45,13 @@ App 为每个请求添加新的 UUID 字符串 `id`，扩展在回复中原样�
 | `op` | 请求字段 | 成功回复中除 `id`、`ok` 外的字段 |
 | --- | --- | --- |
 | `resolver` | 无 | `report`：解析器诊断对象 |
-| `status` | 无 | `compatible`：ABI/Hook 已就绪；`ready`：接口和所选卡槽可解析；`phase`：状态整数；`resolver`：诊断对象 |
-| `open` | `slot`：逻辑卡槽 1 或 2；`aid`：ISD-R AID 十六进制 | `channel`：分配的逻辑通道号 |
+| `slots` | 无 | `slots`：已分配卡槽数组，各含 `logicalSlot`、`hardwareSlot`、`simReady`；`phase`：状态整数 |
+| `status` | 可选 `slot`：逻辑卡槽 | `compatible`：ABI/Hook 已就绪；`ready`：接口和所选卡槽可解析；`phase`：状态整数；`resolver`：诊断对象；可解析时含 `logicalSlot`、`hardwareSlot`、`simReady` |
+| `open` | `slot`：运行时发现的已分配正整数逻辑编号；`aid`：ISD-R AID 十六进制 | `channel`：分配的逻辑通道号；`logicalSlot`、`hardwareSlot`：实际映射 |
 | `transmit` | `hex`：4～261 字节的命令 APDU | `hex`：包含末尾 SW1/SW2 的响应 APDU |
 | `close` | 无 | 无额外字段 |
 
-唯一允许的 AID 是 `a0000005591010ffffffff8900000100`。请求中的卡槽是逻辑编号，由解析器映射为驱动硬件卡槽。`status.ready` 表示对象和卡槽可用，**不代表**基带报告 SIM 已激活，也不代表某个 eSIM profile 已启用。初始选择的逻辑卡槽为 2，`open` 会更新该选择。解析器报告属于实现诊断，不是稳定的外部字段约定，详见 [Patchfinder 文档](PATCHFINDER.zh-CN.md)。
+唯一允许的 AID 是 `a0000005591010ffffffff8900000100`。请求中的卡槽是逻辑编号，由解析器映射为驱动硬件卡槽。`status.ready` 表示对象和卡槽可用，**不代表**基带报告 SIM 已激活，也不代表某个 eSIM profile 已启用。不再固定选择卡槽 2；首次状态查询可以选择首个已分配卡槽，`open` 按请求确定目标。`slots` 不打开通道、不发送 APDU，跳过未分配逻辑编号，`simReady` 也不证明卡片支持 eUICC。App 的自动发现还会逐槽只读探测并核验 EID，详见[多卡槽文档](MULTI_SLOT.zh-CN.md)。解析器报告属于实现诊断，不是稳定的外部字段约定，详见 [Patchfinder 文档](PATCHFINDER.zh-CN.md)。
 
 运行时发现失败时，`resolver` 和 `status` 仍可用。适配器布局、接口签名、代码计划及 Hook 安装通过前，其他操作返回 `Runtime compatibility checks did not pass. Open Firmware resolver for details. No card command was sent.`。UUID 不参与启用判断，打开通道前还要通过活对象和卡槽检查。SIM 未激活时可以通过驱动直接打开管理通道。列表、下载、启用、停用、重命名、删除、通知及自定义 DER 命令均由 App 内 LPA 实现，再转换为 `open` / `transmit` / `close`，没有独立 IPC 操作码。
 
@@ -58,7 +59,7 @@ App 为每个请求添加新的 UUID 字符串 `id`，扩展在回复中原样�
 
 ```json
 {"id":"example-1","op":"open","slot":2,"aid":"a0000005591010ffffffff8900000100"}
-{"id":"example-1","ok":true,"channel":1}
+{"id":"example-1","ok":true,"channel":1,"logicalSlot":2,"hardwareSlot":2}
 ```
 
 操作失败仍返回同一个 ID：

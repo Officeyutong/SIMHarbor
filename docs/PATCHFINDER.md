@@ -197,3 +197,5 @@ Changed symbols, stripped RTTI, different compiler output, oversized functions, 
 [tests/test_resolver.cpp](../tests/test_resolver.cpp) replays authorized image fixtures and covers known results, ASLR relocation, missing/ambiguous/interior symbols, unreadable images and cyclic/ambiguous object chains. Fixtures are private and excluded from Git and CI. This replay does not exercise Darwin symbolication, all live-layout heuristics, hook execution or complete profile management; those need separate device checks. See the [porting guide](ARCHITECTURE_PORTING.md) and [validation scope](VALIDATION.md).
 
 This article remains repository documentation. The app bundles only its bilingual user guide; its firmware report remains a separate diagnostic tool.
+
+Slot management skips unassigned SimInfo nodes (logical ID ≤ 0), while retaining assigned inactive slots. Such placeholder nodes remain relevant to layout discovery; do not hardcode a hardware ID exclusion. Logical IDs are discovered rather than restricted to 1/2. See [multiple slots](MULTI_SLOT.md) for routing, EID protection and test scope.

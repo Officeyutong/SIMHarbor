@@ -1,5 +1,19 @@
 # Release notes / 版本记录
 
+## 1.3.15 — build 1315
+
+### English
+
+- Discover assigned card slots at runtime and add automatic/manual selection. Skip unassigned SimInfo placeholders without dropping valid slots. Auto prefers the remembered EID; an ambiguous new selection requires user choice. A failed explicit selection never falls back to another card.
+- Bind LPA engines and profile confirmations to a slot/EID, verify identity at channel opening, serialize all card work, and reject stale activation input. Clear stale profiles and disable download/scan when the selected card cannot be read. Add `slots` IPC and read-only `--slots-check` / `--slot=N` diagnostics.
+- Document the findings and routing in English and Chinese. Offline sanitizer/localization checks and all three package builds pass. On the roothide phone after moving the cards, verify explicit reads, slot 1 → slot 2 → Auto UI behavior, unchanged profiles, EID mismatch rejection and activation-input context. No download, deletion or line switch was performed; two simultaneous eUICCs remain untested.
+
+### 简体中文
+
+- 运行时发现已分配卡槽，增加自动/手动选择；跳过未分配的 SimInfo 占位节点而保留有效卡槽。自动模式优先匹配记住的 EID，多个新候选要求用户选择；明确选择失败不会回退到其他卡。
+- LPA 实例及卡片操作确认绑定卡槽/EID，打开通道时验证身份，共用串行任务队列，拒绝过期激活码输入。读卡失败清除旧列表并禁用下载/扫码。增加 `slots` IPC、只读 `--slots-check` 和 `--slot=N` 诊断。
+- 增加双语研究与实现文档。离线 sanitizer/本地化检查、三种安装包构建通过；交换卡片位置后的 roothide 真机验证逐槽读取、卡槽 1 → 卡槽 2 → 自动界面切换、卡片列表保持不变、EID 不匹配拒绝及激活码输入上下文。本次没有下载、删除或切换线路；尚未实测两张 eUICC 同时在位。
+
 ## 1.3.14 — build 1314
 
 ### English

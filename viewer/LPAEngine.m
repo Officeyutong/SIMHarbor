@@ -62,6 +62,7 @@
 @end
 
 @interface SHLPA ()
+@property(nonatomic, copy, readwrite) NSString *expectedEID;
 @property(nonatomic, strong) NSError *transportError;
 @property(nonatomic, copy) NSDictionary *lastHTTPDiagnostic;
 @property(nonatomic, copy) NSDictionary *lastAPDUDiagnostic;
@@ -267,9 +268,32 @@ static const struct euicc_apdu_interface apdu = {connectCard, disconnectCard, op
 static const struct euicc_http_interface http = {httpTransmit, NULL};
 @implementation SHLPA
 - (instancetype)init {
-    if ((self = [super init]))
-        _slot = 2;
+    return [self
+        initWithSlot:(int)[NSUserDefaults.standardUserDefaults integerForKey:@"SHPreferredSlot"]];
+}
+- (instancetype)initWithSlot:(int)slot {
+    return [self initWithSlot:slot expectedEID:nil];
+}
+- (instancetype)initWithSlot:(int)slot expectedEID:(NSString *)eid {
+    if ((self = [super init])) {
+        _slot = slot;
+        _expectedEID = [eid copy];
+    }
     return self;
+}
++ (NSArray<NSDictionary *> *)availableSlots:(NSError **)error {
+    NSDictionary *reply = [[SHBridge shared] request:@{@"op" : @"slots"} error:error];
+    return reply[@"slots"];
+}
++ (NSOperationQueue *)operationQueue {
+    static NSOperationQueue *queue;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        queue = [NSOperationQueue new];
+        queue.name = @"com.simharbor.card.operations";
+        queue.maxConcurrentOperationCount = 1;
+    });
+    return queue;
 }
 - (void)warn:(NSString *)english {
     self.lastWarning = SHL(english);
@@ -281,7 +305,16 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
         self.progress(SHL(s));
 }
 - (BOOL)begin:(struct euicc_ctx *)ctx error:(NSError **)e {
+    return [self begin:ctx allowUnbound:NO error:e];
+}
+- (BOOL)begin:(struct euicc_ctx *)ctx allowUnbound:(BOOL)allowUnbound error:(NSError **)e {
     memset(ctx, 0, sizeof(*ctx));
+    if (self.slot < 1 || (!allowUnbound && !self.expectedEID.length)) {
+        if (e)
+            *e = SHError(
+                30, @"Select an eUICC slot and refresh its profile list before this operation.");
+        return NO;
+    }
     ctx->userdata = (__bridge void *)self;
     NSInteger mss = [NSUserDefaults.standardUserDefaults integerForKey:@"SHMSS"];
     if (mss >= 6 && mss <= 255)
@@ -309,11 +342,28 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
                                   }];
         return NO;
     }
+    if (self.expectedEID.length) {
+        char *eid = NULL;
+        int rc = es10c_get_eid(ctx, &eid);
+        NSString *actual = eid ? @(eid) : @"";
+        BOOL matches = !rc && [actual isEqual:self.expectedEID];
+        free(eid);
+        if (!matches) {
+            NSError *failure = SHError(
+                31,
+                @"The card in this slot has changed or is unavailable. Refresh and select the card again before continuing.");
+            euicc_fini(ctx);
+            if (e)
+                *e = failure;
+            return NO;
+        }
+    }
     return YES;
 }
 - (void)failure:(NSString *)stage ctx:(struct euicc_ctx *)ctx error:(NSError **)e {
     [[SHTraceLog shared] event:[@"LPA ERROR " stringByAppendingString:stage]];
     NSMutableDictionary *details = [NSMutableDictionary dictionary];
+    details[@"logicalSlot"] = @(self.slot);
     details[@"es9p"] = @{
         @"subjectCode" : [NSString stringWithUTF8String:ctx->http.status.subjectCode] ?: @"",
         @"reasonCode" : [NSString stringWithUTF8String:ctx->http.status.reasonCode] ?: @"",
@@ -387,7 +437,7 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
 }
 - (NSDictionary *)readCard:(NSError **)e {
     struct euicc_ctx c;
-    if (![self begin:&c error:e])
+    if (![self begin:&c allowUnbound:YES error:e])
         return nil;
     NSMutableArray *items = [NSMutableArray array];
     char *eid = NULL;
@@ -418,6 +468,7 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
         struct es10a_euicc_configured_addresses addresses = {0};
         es10a_get_euicc_configured_addresses(&c, &addresses);
         result = @{
+            @"logicalSlot" : @(self.slot),
             @"eid" : eid ? @(eid) : @"",
             @"profiles" : items,
             @"freeBytes" : space,
@@ -429,6 +480,8 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
             @"discoveryServer" : addresses.rootDsAddress ? @(addresses.rootDsAddress) : @""
         };
         es10a_euicc_configured_addresses_free(&addresses);
+        if (!self.expectedEID.length && eid)
+            self.expectedEID = @(eid);
     } @finally {
         free(eid);
         es10c_profile_info_list_free_all(list);

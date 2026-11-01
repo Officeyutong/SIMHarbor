@@ -58,6 +58,22 @@ def localization():
 
 def native():
     with tempfile.TemporaryDirectory(prefix="simharbor-offline-") as folder:
+        slots = pathlib.Path(folder) / "test-slot-routing"
+        subprocess.run(
+            [
+                "clang++-22",
+                "-std=c++17",
+                "-g",
+                "-O1",
+                "-fsanitize=address,undefined",
+                "-fno-omit-frame-pointer",
+                str(ROOT / "tests/test_slot_routing.cpp"),
+                "-o",
+                str(slots),
+            ],
+            check=True,
+        )
+        subprocess.run([str(slots)], check=True)
         binary = pathlib.Path(folder) / "test-signals"
         sources = [ROOT / "tests/test_signals.c", ROOT / "viewer/SignalCodec.c"]
         sources += sorted((ROOT / "vendor/euicc").glob("*.c"))

@@ -12,6 +12,7 @@
 #import <memory>
 #import <functional>
 #import <mutex>
+#import "SlotRouting.hpp"
 #import "../shared/Wire.h"
 #import "RuntimeResolver.hpp"
 using Vec = std::vector<uint8_t>;
@@ -26,9 +27,9 @@ static Vec *responseVector;
 static Fn retained;
 static Vec pending, raw;
 static std::mutex mu;
-static int slot = 2, qmiError;
+static int slot = 0, qmiError;
 static dispatch_semaphore_t event;
-static int logicalSlot = 2;
+static int logicalSlot = 0;
 static bool directSession = false;
 static std::shared_ptr<Vec> directResponse;
 static std::atomic<bool> compatible{false};
@@ -145,31 +146,55 @@ static bool closeSession() {
 static NSDictionary *fail(NSString *s) {
     return @{@"ok" : @NO, @"error" : s};
 }
-static bool slotInfo(int requested, int &hardware, bool &ready) {
+static NSArray *availableSlots() {
     if (!ensureInterface())
-        return false;
+        return nil;
     auto fw = std::atomic_load(&firmware);
     uintptr_t span[2] = {};
     if (!SHReadMemory((uintptr_t)iface.load() + location("simVector"), span, sizeof span) ||
         !span[0] || span[1] < span[0] || (span[1] - span[0]) % sizeof(std::shared_ptr<void>) ||
         span[1] - span[0] > 16 * sizeof(std::shared_ptr<void>))
-        return false;
+        return nil;
+    std::vector<shslots::Slot> raw, assigned;
     for (uintptr_t p = span[0]; p < span[1]; p += sizeof(std::shared_ptr<void>)) {
         uintptr_t si = 0;
-        int logical = 0;
+        int logical = 0, hardware = 0;
         if (!SHReadMemory(p, &si, 8) || !si ||
-            !SHReadMemory(si + location("logicalSlot"), &logical, 4) || logical != requested)
+            !SHReadMemory(si + location("logicalSlot"), &logical, 4))
+            return nil;
+        if (logical <= 0) {
+            raw.push_back({logical, 0, false});
             continue;
-        if (!SHReadMemory(si + fw->hardwareSlot.load(), &hardware, 4) || hardware < 1 ||
-            hardware > 3)
-            return false;
+        }
+        if (!SHReadMemory(si + fw->hardwareSlot.load(), &hardware, 4))
+            return nil;
         using State = int (*)(void *);
         using Ready = bool (*)(int);
-        ready =
+        bool ready =
             signedFn<Ready>(location("isReady"))(signedFn<State>(location("simState"))((void *)si));
-        return true;
+        raw.push_back({logical, hardware, ready});
     }
-    return false;
+    if (!shslots::assigned(raw, assigned))
+        return nil;
+    NSMutableArray *result = [NSMutableArray array];
+    for (const auto &entry : assigned)
+        [result addObject:@{
+            @"logicalSlot" : @(entry.logical),
+            @"hardwareSlot" : @(entry.hardware),
+            @"simReady" : @(entry.ready)
+        }];
+    return result;
+}
+static bool slotInfo(int requested, int &hardware, bool &ready) {
+    int matches = 0;
+    for (NSDictionary *entry in availableSlots()) {
+        if ([entry[@"logicalSlot"] intValue] == requested) {
+            hardware = [entry[@"hardwareSlot"] intValue];
+            ready = [entry[@"simReady"] boolValue];
+            matches++;
+        }
+    }
+    return matches == 1;
 }
 static NSDictionary *handle(NSDictionary *q) {
     NSString *op = q[@"op"];
@@ -178,15 +203,35 @@ static NSDictionary *handle(NSDictionary *q) {
             ensureInterface();
         return @{@"ok" : @YES, @"report" : SHResolverReport(std::atomic_load(&firmware))};
     }
+    if ([op isEqual:@"slots"]) {
+        if (!compatible)
+            return fail(
+                @"Runtime compatibility checks did not pass. Open Firmware resolver for details. No card command was sent.");
+        NSArray *slots = availableSlots();
+        return slots
+                   ? @{@"ok" : @YES,
+                       @"slots" : slots,
+                       @"phase" : @(phase.load())}
+                   : fail(@"Card service is initializing. Try again later.");
+    }
     if ([op isEqual:@"status"]) {
         int hw = 0;
         bool simReady = false;
-        bool available = compatible && slotInfo(logicalSlot, hw, simReady);
+        int requested =
+            [q[@"slot"] isKindOfClass:NSNumber.class] ? [q[@"slot"] intValue] : logicalSlot;
+        if (requested < 1) {
+            NSArray *entries = compatible ? availableSlots() : nil;
+            requested = [entries.firstObject[@"logicalSlot"] intValue];
+        }
+        bool available = compatible && slotInfo(requested, hw, simReady);
         return @{
             @"ok" : @YES,
             @"compatible" : @(compatible.load()),
             @"ready" : @(available),
             @"phase" : @(phase.load()),
+            @"logicalSlot" : @(requested),
+            @"hardwareSlot" : @(hw),
+            @"simReady" : @(simReady),
             @"resolver" : SHResolverReport(std::atomic_load(&firmware))
         };
     }
@@ -206,13 +251,13 @@ static NSDictionary *handle(NSDictionary *q) {
         if (![SHHex(d) isEqual:@"a0000005591010ffffffff8900000100"])
             return fail(@"Only the eUICC management application is supported.");
         int requested = [q[@"slot"] intValue];
-        if (requested != 1 && requested != 2)
+        if (![q[@"slot"] isKindOfClass:NSNumber.class] || requested < 1)
             return fail(@"Select a physical SIM slot.");
-        logicalSlot = requested;
         bool ready = false;
         int hardware = 0;
-        if (!slotInfo(logicalSlot, hardware, ready))
+        if (!slotInfo(requested, hardware, ready))
             return fail(@"SIM slot not found. Wait for initialization and refresh.");
+        logicalSlot = requested;
         slot = hardware;
         if (!ready) {
             uintptr_t rawDriver = 0;
@@ -254,7 +299,12 @@ static NSDictionary *handle(NSDictionary *q) {
                 return fail(
                     @"Unable to open the card management application. Check that the card is inserted.");
             }
-            return @{@"ok" : @YES, @"channel" : @(channel.load())};
+            return @{
+                @"ok" : @YES,
+                @"channel" : @(channel.load()),
+                @"logicalSlot" : @(logicalSlot),
+                @"hardwareSlot" : @(slot)
+            };
         }
         auto aid = std::make_shared<Vec>((uint8_t *)d.bytes, (uint8_t *)d.bytes + d.length);
         auto out = std::make_shared<Vec>();
@@ -267,7 +317,12 @@ static NSDictionary *handle(NSDictionary *q) {
             return fail(@"Channel open timed out. Wait for service recovery.");
         if (phase != 2)
             return fail(@"Unable to open ISD-R. Check that the card supports eUICC.");
-        return @{@"ok" : @YES, @"channel" : @(channel.load())};
+        return @{
+            @"ok" : @YES,
+            @"channel" : @(channel.load()),
+            @"logicalSlot" : @(logicalSlot),
+            @"hardwareSlot" : @(slot)
+        };
     }
     if ([op isEqual:@"transmit"]) {
         if (phase != 2 || !retained)

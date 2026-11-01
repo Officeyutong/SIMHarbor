@@ -197,3 +197,5 @@ iface + driverMember -> 直接路径所需的驱动指针
 [tests/test_resolver.cpp](../tests/test_resolver.cpp) 使用授权采集的镜像测试已知结果、ASLR 重定位、符号缺失/歧义/非入口地址、不可读镜像及循环/歧义对象链。镜像属于私有资料，不进入 Git 和 CI。该回放不覆盖 Darwin 符号查询、全部活布局启发式、Hook 执行或完整 profile 管理，这些还需要单独真机检查。另见[移植说明](ARCHITECTURE_PORTING.md)和[验证范围](VALIDATION.md)。
 
 本文仅保留在仓库。App 只打包双语使用说明，固件报告仍作为独立诊断工具提供。
+
+卡槽管理跳过未分配的 SimInfo 节点（逻辑编号 ≤ 0），保留已分配但未就绪的节点。占位节点仍参与布局发现，不应硬编码排除某个硬件编号；逻辑编号也不固定为 1/2。路由、EID 保护和验证范围见[多卡槽文档](MULTI_SLOT.zh-CN.md)。
