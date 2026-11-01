@@ -264,15 +264,26 @@ static std::string typeName(uintptr_t object) {
         return {};
     return std::string(bytes, length);
 }
+shruntime::ControllerView SHMakeControllerView(const SHFirmware &fw, uintptr_t object) {
+    shruntime::ControllerLayout layout;
+    layout.simVector = fw.plan.values.at("simVector");
+    layout.sharedPointerStride = sizeof(std::shared_ptr<void>);
+    layout.simInfo.logicalSlot = fw.plan.values.at("logicalSlot");
+    if (auto offset = fw.hardwareSlot.load())
+        layout.simInfo.hardwareSlot = offset;
+    if (auto offset = fw.driverMember.load())
+        layout.driverMember = offset;
+    return {shruntime::MemoryReader(SHReadMemory), object, layout};
+}
 bool SHInferObjectLayout(SHFirmware &fw, uintptr_t object) {
     if (!fw.plan.complete || !object)
         return false;
     fw.objectStage = 2;
+    auto controller = SHMakeControllerView(fw, object);
     std::vector<size_t> drivers;
     for (size_t off = sizeof(void *); off < 512; off += sizeof(void *)) {
-        uintptr_t p = 0;
-        if (SHReadMemory(object + off, &p, 8) &&
-            typeName(SHCleanPointer(p)) == "N10subscriber19EURSimCommandDriverE")
+        auto pointer = controller.pointerField(off);
+        if (pointer && typeName(SHCleanPointer(*pointer)) == "N10subscriber19EURSimCommandDriverE")
             drivers.push_back(off);
     }
     fw.driverCandidates = drivers.size();
@@ -281,31 +292,18 @@ bool SHInferObjectLayout(SHFirmware &fw, uintptr_t object) {
         return false;
     }
     fw.objectStage = 4;
-    uintptr_t span[2] = {};
-    if (!SHReadMemory(object + fw.plan.values.at("simVector"), span, sizeof span) || !span[0] ||
-        span[1] < span[0] || (span[1] - span[0]) % sizeof(std::shared_ptr<void>) ||
-        span[1] - span[0] > 16 * sizeof(std::shared_ptr<void>))
+    auto infos = controller.simInfos();
+    if (!infos || infos->empty())
         return false;
-    size_t count = (span[1] - span[0]) / sizeof(std::shared_ptr<void>);
-    if (!count)
-        return false;
-    std::vector<uintptr_t> infos;
-    for (size_t i = 0; i < count; i++) {
-        uintptr_t p = 0;
-        if (!SHReadMemory(span[0] + i * sizeof(std::shared_ptr<void>), &p, 8) || !p)
-            return false;
-        infos.push_back(p);
-    }
     std::vector<size_t> hardware;
     for (size_t off = 0; off < 128; off += sizeof(int)) {
         if (off == fw.plan.values.at("logicalSlot"))
             continue;
         std::set<int> slots;
         bool valid = true;
-        for (uintptr_t p : infos) {
-            int value = 0;
-            if (!SHReadMemory(p + off, &value, sizeof value) || value < 1 || value > 3 ||
-                !slots.insert(value).second) {
+        for (const auto &info : *infos) {
+            auto value = info.readField<int32_t>(off);
+            if (!value || *value < 1 || *value > 3 || !slots.insert(*value).second) {
                 valid = false;
                 break;
             }

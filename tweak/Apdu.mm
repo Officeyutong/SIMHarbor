@@ -206,6 +206,14 @@ static bool closeSession() {
 }
 // Build an operation-level error reply. networkLoop adds the matching request ID.
 static Reply fail(NSString *s) { return Reply::failure(SHStdString(s)); }
+// Call the discovered state getter and readiness predicate on a borrowed SimInfo.
+// Field reads do not retain the target object or guarantee its lifetime for this call.
+static bool readSimReadiness(uintptr_t object) {
+    using State = int (*)(void *);
+    using Ready = bool (*)(int);
+    return signedFn<Ready>(location("isReady"))(
+        signedFn<State>(location("simState"))(reinterpret_cast<void *>(object)));
+}
 // Enumerate assigned logical/hardware slots from the validated live SimInfo vector.
 // Bound memory reads, skip unassigned placeholders and reject ambiguous mappings.
 // Return nullopt on discovery/read failure; an empty vector is a valid enumeration.
@@ -214,34 +222,23 @@ static std::optional<std::vector<shjson::Slot>> availableSlots() {
     if (!ensureInterface())
         return std::nullopt;
     auto fw = std::atomic_load(&firmware);
-    uintptr_t span[2] = {};
-    if (!SHReadMemory((uintptr_t)iface.load() + location("simVector"), span, sizeof span) ||
-        !span[0] || span[1] < span[0] || (span[1] - span[0]) % sizeof(std::shared_ptr<void>) ||
-        span[1] - span[0] > 16 * sizeof(std::shared_ptr<void>))
+    auto controller = SHMakeControllerView(*fw, reinterpret_cast<uintptr_t>(iface.load()));
+    auto infos = controller.simInfos();
+    if (!infos)
         return std::nullopt;
-    std::vector<shslots::Slot> raw, assigned;
-    for (uintptr_t p = span[0]; p < span[1]; p += sizeof(std::shared_ptr<void>)) {
-        uintptr_t si = 0;
-        int logical = 0, hardware = 0;
-        if (!SHReadMemory(p, &si, 8) || !si ||
-            !SHReadMemory(si + location("logicalSlot"), &logical, 4))
+    std::vector<shslots::Slot> raw;
+    raw.reserve(infos->size());
+    for (const auto &info : *infos) {
+        auto snapshot = info.readSlot(readSimReadiness);
+        if (!snapshot)
             return std::nullopt;
-        if (logical <= 0) {
-            raw.push_back({logical, 0, false});
-            continue;
-        }
-        if (!SHReadMemory(si + fw->hardwareSlot.load(), &hardware, 4))
-            return std::nullopt;
-        using State = int (*)(void *);
-        using Ready = bool (*)(int);
-        bool ready =
-            signedFn<Ready>(location("isReady"))(signedFn<State>(location("simState"))((void *)si));
-        raw.push_back({logical, hardware, ready});
+        raw.push_back(*snapshot);
     }
-    if (!shslots::assigned(raw, assigned))
+    auto slots = shslots::filterAndValidateAssignedSlots(raw);
+    if (!slots)
         return std::nullopt;
     std::vector<shjson::Slot> result;
-    for (const auto &entry : assigned)
+    for (const auto &entry : *slots)
         result.push_back({entry.logical, entry.hardware, entry.ready});
     return result;
 }
@@ -321,13 +318,12 @@ static Reply handle(const shjson::Request &q) {
         if (!ready) {
             // An inactive SIM may still expose ISD-R through the direct driver path.
             // Own the response vector here instead of borrowing the sender's vector.
-            uintptr_t rawDriver = 0;
             auto fw = std::atomic_load(&firmware);
-            if (!SHReadMemory((uintptr_t)iface.load() + fw->driverMember.load(), &rawDriver, 8))
+            auto controller = SHMakeControllerView(*fw, reinterpret_cast<uintptr_t>(iface.load()));
+            auto address = controller.driver();
+            if (!address)
                 return fail(@"Card driver is not ready.");
-            driver = (void *)rawDriver;
-            if (!driver)
-                return fail(@"Card driver is not ready.");
+            driver = reinterpret_cast<void *>(*address);
             directSession = true;
             directResponse = std::make_shared<Vec>();
             responseVector = directResponse.get();

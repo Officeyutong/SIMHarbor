@@ -91,6 +91,8 @@ Once runtime signature/layout checks and the code plan pass, hooks on the export
 
 `findController` examines 32 root words and follows potential next-pointer chains, with caps of 512 steps per chain and 2,048 visited nodes overall. It inspects bounded node words and accepts only one distinct object matching the resolved controller vtable. This removes the previous fixed map, node-value and typeinfo-reference offsets, while retaining assumptions about the map's reachable pointer-chain shape.
 
+Live-object reads use `MemoryReader`, `ControllerView`, `SharedPointerVectorView` and `SimInfoView` in [RuntimeObjects.hpp](../tweak/RuntimeObjects.hpp). `SHMakeControllerView` supplies discovered field offsets and the compiled shared-pointer stride. The views copy trivially-copyable snapshots without casting foreign memory to owning STL objects or modifying reference counts. Failed reads and invalid bounds return `nullopt`. They do not retain the target objects, make concurrent mutations atomic, or guarantee that a later private getter call remains safe.
+
 `SHInferObjectLayout` derives two more fields:
 
 1. **Driver member:** inspect pointer-aligned members within the first 512 bytes of the controller. The pointee must have the exact concrete driver RTTI name `N10subscriber19EURSimCommandDriverE`. A shared-pointer control block can contain the driver name in its own RTTI, so substring matching would create false candidates.

@@ -1,6 +1,7 @@
 #pragma once
 #import <Foundation/Foundation.h>
 #include "ResolverCore.hpp"
+#include "RuntimeObjects.hpp"
 #include "../shared/Protocol.hpp"
 #include <atomic>
 #include <memory>
@@ -21,4 +22,6 @@ std::shared_ptr<SHFirmware> SHResolveFirmware();
 bool SHReadMemory(uintptr_t, void *, size_t);
 uintptr_t SHCleanPointer(uintptr_t);
 bool SHInferObjectLayout(SHFirmware &, uintptr_t);
+// Borrow the current object using discovered offsets and the compiled container stride.
+shruntime::ControllerView SHMakeControllerView(const SHFirmware &, uintptr_t);
 shjson::ResolverReport SHResolverReport(const std::shared_ptr<SHFirmware> &);

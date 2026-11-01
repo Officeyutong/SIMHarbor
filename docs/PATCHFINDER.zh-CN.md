@@ -91,6 +91,8 @@ ABI 和代码计划通过后，扩展 Hook 导出的 Registry getter，在 CommC
 
 `findController` 检查根部的 32 个机器字，沿可能的 next-pointer 链前进，限制每条链最多 512 步、总共访问最多 2,048 个节点。它读取有界节点字段，只接受一个与已解析控制器虚表一致的不同对象。这样去掉了原先固定的 map、节点值和 typeinfo 引用偏移，但仍假设服务 map 中存在这种可达指针链。
 
+活对象读取通过 [RuntimeObjects.hpp](../tweak/RuntimeObjects.hpp) 中的 `MemoryReader`、`ControllerView`、`SharedPointerVectorView` 和 `SimInfoView` 完成。`SHMakeControllerView` 提供已发现的字段偏移和编译后的 shared-pointer 步长。视图只复制可平凡复制的快照，不把外部内存转换为拥有所有权的 STL 对象，也不修改引用计数。读取失败或边界无效时返回 `nullopt`。这些封装不会延长目标对象的生命周期、让并发修改具有原子性，或保证后续私有 getter 调用仍然安全。
+
 `SHInferObjectLayout` 再推导两项字段：
 
 1. **驱动成员位置：** 按指针对齐扫描控制器前 512 字节。指向对象的 RTTI 必须精确等于具体驱动类型 `N10subscriber19EURSimCommandDriverE`。shared-pointer 控制块的类型名也可能包含驱动类名，因此不能只做子串匹配。

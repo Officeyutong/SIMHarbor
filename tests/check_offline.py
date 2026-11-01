@@ -91,6 +91,22 @@ def native():
             check=True,
         )
         subprocess.run([str(slots)], check=True)
+        objects = pathlib.Path(folder) / "test-runtime-objects"
+        subprocess.run(
+            [
+                "clang++-22",
+                "-std=c++17",
+                "-g",
+                "-O1",
+                "-fsanitize=address,undefined",
+                "-fno-omit-frame-pointer",
+                str(ROOT / "tests/test_runtime_objects.cpp"),
+                "-o",
+                str(objects),
+            ],
+            check=True,
+        )
+        subprocess.run([str(objects)], check=True)
         json_binary = pathlib.Path(folder) / "test-json"
         subprocess.run(
             [

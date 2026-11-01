@@ -26,7 +26,7 @@ Open **Card slots** at the top left of Profiles. The menu lists assigned logical
 
 ## Implementation
 
-`availableSlots` in [Apdu.mm](../tweak/Apdu.mm) reads the discovered SimInfo vector and the Patchfinder's logical/hardware fields. [SlotRouting.hpp](../tweak/SlotRouting.hpp) excludes unassigned logical IDs, rejects ambiguous logical/hardware mappings and sorts assigned slots. Assigned inactive slots remain visible. There is no fixed “slot 1 and slot 2 only” selector list; the current driver adapter still validates its hardware enum range.
+`availableSlots` in [Apdu.mm](../tweak/Apdu.mm) enumerates borrowed `ControllerView` / `SimInfoView` objects from [RuntimeObjects.hpp](../tweak/RuntimeObjects.hpp). These views use runtime-discovered offsets and a checked `MemoryReader` to copy typed field snapshots; container bounds and shared-pointer entry traversal are handled separately. [SlotRouting.hpp](../tweak/SlotRouting.hpp) excludes unassigned logical IDs, rejects ambiguous logical/hardware mappings and sorts assigned slots. `filterAndValidateAssignedSlots` returns `optional<vector<Slot>>`: `nullopt` indicates an invalid mapping, while an empty vector means no assigned slots. Assigned inactive slots remain visible. There is no fixed “slot 1 and slot 2 only” selector list; the current driver adapter still validates its hardware enum range.
 
 The `slots` IPC operation reports `logicalSlot`, `hardwareSlot` and `simReady`, without opening a channel or sending APDUs. `open` accepts an assigned logical ID, maps it to the current hardware ID, and returns both IDs alongside the channel. The sender receives the logical ID; driver calls and response matching receive the hardware ID. See the [IPC protocol](IPC.md).
 
