@@ -51,7 +51,7 @@ GitHub Actions 文件：`.github/workflows/build.yml`。
 
 Release 要求三种构建全部成功，包含三个 `SIMHarbor_VERSION_方案.deb`、合并的 `SHA256SUMS` 以及各方案的构建信息。
 
-发布新版时修改 `VERSION`，并按需递增 `BUILD_NUMBER`。`control` 和 App 的 `Info.plist` 从 `packaging/` 模板自动生成，无需手动同步。源码版本目前为 1.3.16（构建号 1316），变更见[版本记录](docs/RELEASES.md)。
+发布新版时修改 `VERSION`，并按需递增 `BUILD_NUMBER`。`control` 和 App 的 `Info.plist` 从 `packaging/` 模板自动生成，无需手动同步。源码版本目前为 1.3.17（构建号 1317），变更见[版本记录](docs/RELEASES.md)。
 
 ## 测试与验证范围
 

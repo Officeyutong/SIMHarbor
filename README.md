@@ -51,7 +51,7 @@ GitHub Actions workflow: `.github/workflows/build.yml`.
 
 Releases require all three variants to succeed. Assets include `SIMHarbor_VERSION_rootful.deb`, `SIMHarbor_VERSION_rootless.deb`, `SIMHarbor_VERSION_roothide.deb`, a combined `SHA256SUMS`, and per-scheme build metadata.
 
-To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.16 (build 1316). See the [release notes](docs/RELEASES.md).
+To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.17 (build 1317). See the [release notes](docs/RELEASES.md).
 
 ## Tests and validation scope
 

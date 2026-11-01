@@ -1,5 +1,15 @@
 # Release notes / 版本记录
 
+## 1.3.17 — build 1317
+
+### English
+
+- Scroll the Profiles page to its header when an operation begins, making the spinner and progress visible even after scrolling down the list. This covers profile deletion, enabling/disabling, renaming, downloading, slot selection and refresh. Respect Reduce Motion; progress updates do not repeatedly force the scroll position.
+
+### 简体中文
+
+- 操作开始时自动把卡片列表滚到页头，让用户能看到转圈和进度提示，覆盖删除、启用/停用、重命名、下载、选择卡槽及刷新。遵循“减弱动态效果”设置；后续进度更新不会反复强制滚动。
+
 ## 1.3.16 — build 1316
 
 ### English

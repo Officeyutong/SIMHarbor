@@ -593,6 +593,12 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
         }
     }
     [self.tableView reloadData];
+    if (b) {
+        // The operation progress lives in the table header, above the profile list.
+        [self.tableView layoutIfNeeded];
+        [self.tableView setContentOffset:CGPointMake(0, -self.tableView.adjustedContentInset.top)
+                                animated:!UIAccessibilityIsReduceMotionEnabled()];
+    }
     if (!b)
         dispatch_async(dispatch_get_main_queue(), ^{
             [self presentPendingActivationCode];
