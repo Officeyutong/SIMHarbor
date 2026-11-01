@@ -6,6 +6,8 @@ SIMHarbor's Patchfinder discovers the private entry points and object fields use
 
 The implementation is split between [RuntimeResolver.mm](../tweak/RuntimeResolver.mm), which supplies the Darwin runtime and live-memory access, and [ResolverCore.cpp](../tweak/ResolverCore.cpp), which performs image analysis and bounded controller discovery. [ResolverCore.hpp](../tweak/ResolverCore.hpp) defines the `Image`, `Symbol` and `Plan` types.
 
+The transport call flow, callback ownership and state transitions are explained in [CommCenter transport](COMMCENTER_TRANSPORT.md).
+
 ## Discovery and runtime eligibility
 
 ```mermaid

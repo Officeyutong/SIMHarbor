@@ -6,6 +6,8 @@ SIMHarbor 的 Patchfinder 用于定位 CommCenter 通道依赖的私有入口和
 
 实现分为两部分：[RuntimeResolver.mm](../tweak/RuntimeResolver.mm) 负责 Darwin 运行时与活内存访问，[ResolverCore.cpp](../tweak/ResolverCore.cpp) 负责镜像分析和有界控制器搜索。[ResolverCore.hpp](../tweak/ResolverCore.hpp) 定义 `Image`、`Symbol` 和 `Plan` 数据结构。
 
+传输调用流程、回调生命周期和状态迁移见 [CommCenter 内部通信文档](COMMCENTER_TRANSPORT.zh-CN.md)。
+
 ## 定位与运行时启用条件
 
 ```mermaid

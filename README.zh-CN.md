@@ -72,6 +72,7 @@ App 仅内置双语使用说明，技术文章保留在仓库中：
 - [使用说明](docs/manual/zh-Hans/guide.md)
 - [多卡槽发现与路由](docs/MULTI_SLOT.zh-CN.md)
 - [Patchfinder 是怎么工作的](docs/PATCHFINDER.zh-CN.md)
+- [通过 CommCenter 内部函数与基带通信](docs/COMMCENTER_TRANSPORT.zh-CN.md)
 - [App 与 CommCenter 通信协议](docs/IPC.zh-CN.md)
 - [移植指南](docs/manual/zh-Hans/porting.md)
 - [验证范围](docs/VALIDATION.md)

@@ -70,6 +70,7 @@ The app includes only its bilingual user guide. Technical articles remain in thi
 - [User guide](docs/manual/en/guide.md)
 - [Multiple slots: discovery and routing](docs/MULTI_SLOT.md)
 - [How the Patchfinder works](docs/PATCHFINDER.md)
+- [How CommCenter carries APDUs to the baseband](docs/COMMCENTER_TRANSPORT.md)
 - [App–CommCenter IPC protocol](docs/IPC.md)
 - [Porting guide](docs/manual/en/porting.md)
 - [Validation scope](docs/VALIDATION.md)
