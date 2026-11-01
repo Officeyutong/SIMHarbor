@@ -1,5 +1,19 @@
 # Release notes / 版本记录
 
+## 1.3.21 — build 1321
+
+### English
+
+- Encapsulate live CommCenter memory access in checked typed readers and borrowed controller/SimInfo views. Reuse container-bound checks and runtime layouts in discovery, slot enumeration and direct-driver access without taking ownership of private objects.
+- Rename slot routing validation to `filterAndValidateAssignedSlots`; return an optional result to distinguish invalid mappings from a valid empty list. Add sanitizer tests covering changed layouts, invalid bounds, failed reads and unassigned nodes.
+- Fix remote Linux clangd indexing for the iOS SDK and Objective-C++ tweak entry point. Add English comments to every ResolverCore function and update the bilingual slot/patchfinder documentation.
+
+### 简体中文
+
+- 通过带检查的类型化读取器及不持有所有权的控制器／SimInfo 视图封装 CommCenter 活对象读取。在布局发现、卡槽枚举和直接驱动访问中复用容器边界检查及运行时布局，不接管私有对象所有权。
+- 卡槽映射校验重命名为 `filterAndValidateAssignedSlots`，使用 optional 返回值区分无效映射和有效空列表。增加 sanitizer 测试，覆盖变化的布局、非法边界、读取失败及未分配节点。
+- 修复远程 Linux clangd 对 iOS SDK 及 Objective-C++ Tweak 入口的索引。为 ResolverCore 的每个函数添加英文注释，更新中英文卡槽／patchfinder 文档。
+
 ## 1.3.20 — build 1320
 
 ### English
