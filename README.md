@@ -45,6 +45,8 @@ For Linux Remote-SSH/Dev Containers, install `clangd-22` alongside the project's
 
 The project `.clangd` uses that database and disables implicit SDK modules **for indexing only**. Clang supports Objective-C `#import`; a “Could not build module Foundation” diagnostic can come from an earlier Darwin/libc++ module error, not unsupported syntax. Clangd 18 also lacks the `ptrauth.h` needed by this adapter. The editor-only `SH_CLANGD` flag supplies a declaration for the build-generated pairing key; it contains no key and does not change real build flags.
 
+The workspace maps `*.xm` to Objective-C++ and `.clangd` supplies its language/standard even when its compile command is inferred. The current startup file uses a native constructor equivalent to its former Logos `%ctor`, so clangd can parse its body directly. Logos-specific directives such as `%hook` still require Logos preprocessing.
+
 Open the SIMHarbor repository folder in VSCode, install/enable the clangd extension on the remote side, then run **clangd: Restart language server**. Check the clangd Output channel for version 22 and the loaded compilation database if diagnostics persist. Official reference: [clangd configuration](https://clangd.llvm.org/config).
 
 ## Automated builds and releases

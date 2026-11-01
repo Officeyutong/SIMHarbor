@@ -12,3 +12,11 @@ CompileFlags:
     - -fno-modules
     - -fno-implicit-modules
     - -DSH_CLANGD=1
+---
+# Logos sources have no native compiler extension. Retain Objective-C++ parsing
+# even when clangd borrows a command for this file from another database entry.
+If:
+  PathMatch: '.*\.xm'
+CompileFlags:
+  Remove: [-x, -std=*]
+  Add: [-x, objective-c++, -std=c++17]
