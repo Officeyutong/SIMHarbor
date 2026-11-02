@@ -8,6 +8,7 @@ from pathlib import Path
 import time
 
 from catalog import dump
+from sweep_analysis import analyze_results
 
 
 def report(root):
@@ -18,6 +19,7 @@ def report(root):
     covered = set()
     resolved = set()
     fingerprints = collections.defaultdict(list)
+    manifest_gaps = []
     for asset in plan["assets"]:
         entry = state["results"].get(asset["asset"], {})
         row = {
@@ -32,6 +34,8 @@ def report(root):
             "groups": [],
         }
         result = entry.get("analysis", {})
+        row["excluded_targets"] = result.get("excluded_targets", [])
+        manifest_gaps.extend(row["excluded_targets"])
         for index, group in enumerate(result.get("groups", [])):
             resolver = group.get("resolver", {})
             keys = [(t["release_id"], t["device"]) for t in group["targets"]]
@@ -73,6 +77,7 @@ def report(root):
             r["bytes"] for r in records if r["status"] == "analyzed_deleted"
         ),
         "source_gaps": plan["gaps"],
+        "manifest_source_gaps": manifest_gaps,
         "records": records,
         "equivalent_module_sets": [
             {"modules": dict(k), "inputs": v} for k, v in fingerprints.items()
@@ -84,6 +89,7 @@ def report(root):
         ],
     }
     dump(root / "reports/summary.json", summary)
+    analyze_results(root, plan, state)
     lines = [
         "# iOS 16 全设备固件分析进度",
         "",
@@ -96,6 +102,7 @@ def report(root):
         "静态解析通过不表示真机兼容。提取的目标二进制与分析报告保留，IPSW／OTA 在完成分析后删除。",
         "",
         f"元数据中没有可用完整来源的组合：{len(plan['gaps'])}，详见 summary.json；不计入已覆盖。",
+        f"已验证 manifest 拒绝的资源／目标关联：{len(manifest_gaps)}，详见 manifest_source_gaps；不计入该资源的覆盖。",
         "",
         "| 版本 | Build | 设备 | 类型 | 状态 | 解析结果／错误 |",
         "|---|---|---|---|---|---|",
@@ -107,6 +114,8 @@ def report(root):
             g["resolver"]["status"] + ": " + ", ".join(g["resolver"].get("errors", []))
             for g in row["groups"]
         )
+        if row["excluded_targets"]:
+            detail += "; manifest 排除：" + ", ".join(t["device"] for t in row["excluded_targets"])
         lines.append(
             f"| {row['version']} | {row['build']} | {', '.join(row['devices'])} | {row['kind']} | {row['status']} | {detail.replace('|', '/').replace(chr(10), ' ')} |"
         )
@@ -114,7 +123,14 @@ def report(root):
     return {
         k: v
         for k, v in summary.items()
-        if k not in ["records", "equivalent_module_sets", "source_gaps", "limitations"]
+        if k
+        not in [
+            "records",
+            "equivalent_module_sets",
+            "source_gaps",
+            "manifest_source_gaps",
+            "limitations",
+        ]
     }
 
 

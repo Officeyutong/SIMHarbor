@@ -136,7 +136,7 @@ ABI 和代码计划通过后，扩展 Hook 导出的 Registry getter，在 CommC
 | `controllerVtable` | 这是数据地址，不是某个虚方法的槽位偏移。`findController` 用它与候选对象的 vptr 比较，找到唯一的活 `SubscriberSimController`；其入口也提供 `sender` 的搜索范围。 | 找到精确类型名 `23SubscriberSimController` 的 RTTI，跟随引用寻找 offset-to-top 为零、入口可执行的主虚表，并要求唯一。保存的是对象 vptr 使用的虚表地址点。 |
 | `sender` | 普通 `open` 路径调用这个控制器方法，传入**逻辑槽**、共享 AID／输出 vector。它发起高层交换，使 Hook 能捕获并保留驱动、通道和 vector。 | 遍历控制器虚表方法，寻找支持的 PC 相对 worker 引用；worker 必须是可执行函数起点，并引用已识别的 APDU 任务虚表。sender 和 worker 均须去重后唯一，不固定虚方法索引。 |
 | `worker` | 这是分析锚点，通道**不会直接调用或 Hook 它**。通过其函数体把 sender 与 APDU 任务关联起来，并推导状态 getter 和 SimInfo 字段。 | 找到唯一的“控制器方法 → worker → APDU 任务虚表”引用链，worker 必须是 CommCenter 内的函数起点。 |
-| `completion` | `completionHook` 在调用原函数后观察高层任务结束，配合阶段状态和信号量释放关闭等待，或报告打开失败。直接打开路径另有自己的保留回调。 | 通过 RTTI 找到 APDU 的 bool 完成闭包，检查其虚表入口，选取唯一含“读取第二参数所指 bool”的字节加载模式的函数，当前模式为 `LDRB w1, [x1]`。入口由指令推导，不固定 invoke 槽位。 |
+| `completion` | `completionHook` 在调用原函数后观察高层任务结束，配合阶段状态和信号量释放关闭等待，或报告打开失败。直接打开路径另有自己的保留回调。 | 通过 RTTI 找到 APDU 的 bool 完成闭包，检查其虚表入口，选取唯一含“读取第二参数所指 bool”的字节加载模式的函数，模式为 `LDRB wN, [x1]`；目标为编译器分配的通用寄存器（例如 w1 或 w8），参数基址和字节位移仍受约束。入口由指令推导，不固定 invoke 槽位。 |
 | `simState` | `slotInfo` 在选中的 `SimInfo` 上调用此 getter，再把结果交给 `isReady`，决定使用普通 sender 还是直接驱动打开路径。 | 在 worker 中找到目标经支持的 stub 还原后等于就绪判断导出的 `BL`；它前一条直接调用的目标必须可执行且唯一，该目标就是状态 getter。 |
 | `isReady` | 解释基带／SIM 状态，避免写死“某个状态枚举值等于就绪”。它决定 SIM 能否走普通路径，不是 profile 列表中的启用状态。 | 使用 `dlsym` 查找 `_ZN10subscriber10isSimReadyENS_8SimStateE`，作为 worker 调用链锚点；比较目标时跟随支持的 stub。缺少导出会使计划不完整。 |
 

@@ -146,7 +146,7 @@ def plan_sweep(corpus, root, major):
     return result
 
 
-def identity_groups(root, asset, archive):
+def identity_groups(root, asset, archive, *, excluded=None):
     """Bind every target board to actual manifest OS paths and cache architecture."""
     with zipfile.ZipFile(archive) as z:
         manifest = plistlib.loads(z.read("BuildManifest.plist"))
@@ -156,7 +156,17 @@ def identity_groups(root, asset, archive):
     with closing(sqlite3.connect(root / "catalog.sqlite")) as db:
         for target in asset["targets"]:
             if target["device"] not in manifest["SupportedProductTypes"]:
-                raise ValueError("Manifest device mismatch")
+                if excluded is None:
+                    raise ValueError("Manifest device mismatch")
+                excluded.append(
+                    target
+                    | {
+                        "reason": "Catalog delivery does not match the verified BuildManifest device list",
+                        "manifest_devices": manifest["SupportedProductTypes"],
+                        "asset": asset["asset"],
+                    }
+                )
+                continue
             metadata = json.loads(
                 db.execute(
                     "SELECT metadata FROM device WHERE id=?", (target["device"],)
@@ -201,16 +211,18 @@ def identity_groups(root, asset, archive):
                     },
                 )
                 group["targets"].append(target | {"board": board})
+    if not groups:
+        raise ValueError("No catalog targets have a matching manifest identity")
     return list(groups.values())
 
 
-def replay(root, folder, destination):
+def replay(root, folder, destination, *, runner=None):
     """Keep results/provenance, remove the reproducible temporary memory model."""
     destination.mkdir(parents=True, exist_ok=True)
     model = Path(tempfile.mkdtemp(prefix="replay-", dir=root / "work"))
     try:
         prepared = prepare(folder, model)
-        runner = root / "tools/offline-resolver"
+        runner = runner or root / "tools/offline-resolver"
         value = json.loads(
             subprocess.check_output(
                 [str(runner), str(model / "input.json")], timeout=300, text=True
@@ -341,12 +353,18 @@ def inspect_ota(root, asset, archive):
     return result
 
 
-def analyze_asset(root, asset):
+def analyze_asset(root, asset, *, runner=None):
     archive = root / "archives" / (asset["asset"] + (".zip" if asset["kind"] == "ota" else ".ipsw"))
     if asset["kind"] == "ota":
         return inspect_ota(root, asset, archive)
-    groups = identity_groups(root, asset, archive)
-    report = {"asset": asset["asset"], "status": "analyzed", "groups": []}
+    excluded = []
+    groups = identity_groups(root, asset, archive, excluded=excluded)
+    report = {
+        "asset": asset["asset"],
+        "status": "analyzed",
+        "groups": [],
+        "excluded_targets": excluded,
+    }
     for index, group in enumerate(groups):
         output = root / "artifacts" / asset["asset"] / ("group-" + str(index))
         chosen = asset | {"device": group["device"]}
@@ -362,7 +380,10 @@ def analyze_asset(root, asset):
             raise RuntimeError("Target extraction incomplete: " + json.dumps(result["errors"]))
         inspect(root, output)
         group["resolver"] = replay(
-            root, output, root / "analyses" / asset["asset"] / ("group-" + str(index))
+            root,
+            output,
+            root / "analyses" / asset["asset"] / ("group-" + str(index)),
+            runner=runner,
         )
         group["modules"] = {
             name: {"sha256": sha256(output / name), "bytes": (output / name).stat().st_size}
@@ -395,6 +416,8 @@ def run_locked(corpus, root, workers, kind, limit):
     if state.get("plan_sha256") not in (None, digest):
         raise ValueError("Saved plan changed; use a separate sweep directory")
     state["plan_sha256"] = digest
+    state.pop("paused_reason", None)
+    state.pop("finished_selected_queue", None)
     state.setdefault("runs", []).append(
         {
             "started": now(),

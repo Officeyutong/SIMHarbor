@@ -893,12 +893,15 @@ Plan resolve(const Image &cc, const Image &dr, const std::vector<Symbol> &symbol
         return p;
     std::vector<Address> complete;
     // Select the previously validated completion table by its address point.
+    // The bool-reference argument remains x1; the compiler may load its value
+    // into any general-purpose register (A11 samples use w8, ARM64e uses w1).
+    // RTTI membership, the argument-base read and uniqueness remain mandatory.
     auto bt = std::find_if(ts.begin(), ts.end(), [&](auto &t) { return t.address == boolean; });
     for (Address f : bt->entries)
         for (auto &i : d.function(cc, f))
-            if (i.id == ARM64_INS_LDRB && i.a.op_count == 2 && d.reg(i.a.operands[0].reg) == 1 &&
-                memop(i.a.operands[1]) && d.reg(i.a.operands[1].mem.base) == 1 &&
-                i.a.operands[1].mem.disp == 0)
+            if (i.id == ARM64_INS_LDRB && i.a.op_count == 2 && regop(i.a.operands[0]) &&
+                d.reg(i.a.operands[0].reg) >= 0 && memop(i.a.operands[1]) &&
+                d.reg(i.a.operands[1].mem.base) == 1 && i.a.operands[1].mem.disp == 0)
                 complete.push_back(f);
     p.set("completion", only(p, complete, "completion invoke"),
           "APDU bool closure RTTI + bool-reference invoke instruction");
