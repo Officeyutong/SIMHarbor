@@ -75,6 +75,8 @@ Optional image-replay tests can be run with `python3 tests/check_resolver.py /pa
 
 ## Documentation
 
+[All documentation in English and Chinese](docs/README.md).
+
 The app includes only its bilingual user guide. Technical articles remain in this repository:
 
 - [User guide](docs/manual/en/guide.md)

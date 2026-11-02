@@ -202,7 +202,7 @@ iface + driverMember -> 直接路径所需的驱动指针
 
 符号变化、RTTI 裁剪、编译器输出改变、函数过大、服务 map 形态变化、SimInfo 或槽位字段不唯一，都可能需要扩展规则。应保留歧义拒绝机制，补充镜像回放和反例，并确认旧构建回归通过后再宣称新目标已经验证。
 
-[tests/test_resolver.cpp](../tests/test_resolver.cpp) 使用授权采集的镜像测试已知结果、ASLR 重定位、符号缺失/歧义/非入口地址、不可读镜像及循环/歧义对象链。镜像属于私有资料，不进入 Git 和 CI。该回放不覆盖 Darwin 符号查询、全部活布局启发式、Hook 执行或完整 profile 管理，这些还需要单独真机检查。另见[移植说明](ARCHITECTURE_PORTING.md)和[验证范围](VALIDATION.md)。
+[tests/test_resolver.cpp](../tests/test_resolver.cpp) 使用授权采集的镜像测试已知结果、ASLR 重定位、符号缺失/歧义/非入口地址、不可读镜像及循环/歧义对象链。镜像属于私有资料，不进入 Git 和 CI。该回放不覆盖 Darwin 符号查询、全部活布局启发式、Hook 执行或完整 profile 管理，这些还需要单独真机检查。另见[移植说明](ARCHITECTURE_PORTING.zh-CN.md)和[验证范围](VALIDATION.zh-CN.md)。
 
 本文仅保留在仓库。App 只打包双语使用说明，固件报告仍作为独立诊断工具提供。
 
@@ -216,6 +216,6 @@ iface + driverMember -> 直接路径所需的驱动指针
 
 当前 continuation 适配器需要 SIM 就绪，控制器才能创建该原生 block。未就绪时在开通道前拒绝；这一限制仍需进一步适配。存在独立命令方法的固件保留直接访问未就绪槽位的路径。26.0.1 的 vector 尾指针和字节捕获证据可跨一层直接辅助函数追踪，不递归分析。
 
-静态重放不执行目标代码，也不证明能完成配置管理。运行时符号化、hook 和卡片通信仍需真机验证；六个样本不覆盖 iOS 14–26.0.1 的所有设备／构建。未知、歧义布局继续输出诊断。[主机重放工具](../research/firmware/README.md#file-model-resolver-replay)和[合成遍历测试](../tests/test_sim_container.cpp)用于后续验证。
+静态重放不执行目标代码，也不证明能完成配置管理。运行时符号化、hook 和卡片通信仍需真机验证；六个样本不覆盖 iOS 14–26.0.1 的所有设备／构建。未知、歧义布局继续输出诊断。[主机重放工具](../research/firmware/README.zh-CN.md#file-model-resolver-replay)和[合成遍历测试](../tests/test_sim_container.cpp)用于后续验证。
 
 活对象硬件槽字段允许位于偏移零；是否完成定位由显式的对象发现状态决定，不将零偏移误认为缺失。

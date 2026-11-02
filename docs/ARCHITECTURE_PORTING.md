@@ -1,20 +1,22 @@
-# 技术路线与移植
+# Architecture and porting
 
-当前实际验证基线：iPhone 13（iPhone14,5）、iOS 17.2.1 / 21C66、roothide，历史验证中实体 eSTK eUICC 位于 slot 2；1.3.15 已在交换位置后验证动态选卡。1.1.4 完成了原生 测试条目 下载/重命名/启用/停用/恢复/删除回归；1.1.7 完成最终只读检查。1.2.1 已在真机完成文档/双语、日志和只读自定义信令验证。1.2.2 更新内置验证记录，传输核心未变。
+**English** | [简体中文](ARCHITECTURE_PORTING.zh-CN.md)
 
-## 当前路线
+The device-validated baseline is iPhone 13 (iPhone14,5), iOS 17.2.1 / 21C66 and roothide. The removable eSTK eUICC historically occupied slot 2; version 1.3.15 validated dynamic selection after swapping cards. Version 1.1.4 completed authorized test-profile download, rename, enable, disable, restore and deletion; 1.1.7 completed final read-only checks. Version 1.2.1 validated documentation/languages, logging and read-only custom signals on device. Version 1.2.2 updated the bundled validation record without changing the transport core.
+
+## Current architecture
 
 ```mermaid
 flowchart TD
-    UI[UIKit App：卡片管理 / 双语界面 / 信令控制台]
-    LPA[本机 libeuicc：ES9+ / ES10]
-    HTTP[NSURLSession：HTTPS、系统及 GSMA 信任]
-    SM[运营商 SM-DP+ / 通知服务器]
-    IPC[127.0.0.1:18099：JSON + 双向 HMAC 配对]
-    CC[注入 CommCenter 的原生扩展]
-    DRIVER[subscriber 接口 / QMI 驱动 / 持久逻辑通道]
-    CARD[实体 eUICC 的 ISD-R]
-    LOG[英文日志：APDU、HTTP 应用层信令、状态与错误]
+    UI[UIKit app: profile management / bilingual UI / signal console]
+    LPA[Local libeuicc: ES9+ / ES10]
+    HTTP[NSURLSession: HTTPS, system and GSMA trust]
+    SM[Operator SM-DP+ / notification server]
+    IPC[127.0.0.1:18099: JSON + mutual HMAC pairing]
+    CC[Native extension injected into CommCenter]
+    DRIVER[Subscriber interface / QMI driver / persistent logical channel]
+    CARD[Removable eUICC ISD-R]
+    LOG[English logs: APDU, HTTP application signaling, state and errors]
     UI --> LPA
     LPA <--> HTTP
     HTTP <--> SM
@@ -26,69 +28,69 @@ flowchart TD
     HTTP --> LOG
 ```
 
-App 在手机本地执行 LPA，扩展只负责卡槽/逻辑通道/APDU。Frida 是研究和调试工具，普通使用不依赖它，也不需要电脑做 APDU 或 HTTP 中转。UI 操作共用串行队列，写卡、切换、读卡和自定义请求不会并发占用通道。
+The app runs the LPA locally; the extension handles slots, logical channels and APDUs. Frida is a research/debugging tool, with no normal-use dependency or computer relay for APDU/HTTP traffic. UI operations share a serial queue so installation, switching, reads and custom requests do not use the channel concurrently.
 
-CommCenter 的高层 sender 接收的是 **AID**，不是任意原始 APDU。扩展借它建立 ISD-R 会话，拦截驱动准备关闭通道的流程以保持会话；后续替换驱动生成的 APDU 数据，捕获原始响应，再在 App 请求结束时关闭并释放原流程的回调。SIM 处于 inactive 状态时，改用驱动入口打开管理通道，支持停用后继续读卡或恢复线路。
+CommCenter's high-level sender accepts an **AID**, not arbitrary raw APDU bytes. The extension uses it to establish ISD-R, intercepts automatic channel closing to retain the session, then replaces the driver's encoded APDU and captures raw responses. At the end of app requests it closes the channel and releases callbacks from the original flow. For an inactive SIM, the independent-command adapter can open management through the driver directly, allowing reads or line recovery after disabling a profile. The native-continuation adapter added in 1.3.22 currently requires a ready SIM; see [Patchfinder](PATCHFINDER.md).
 
-App/扩展之间为有界 JSON 帧及随机挑战的双向 HMAC 认证，监听限于本机回环。HMAC 不隔离越狱 root；配对密钥随本项目的 App/扩展共同构建。扩展不再按机型、系统构建或 UUID 过滤；接口签名、代码计划、活对象及卡槽运行时检查通过后才开放卡片操作。
+App/extension communication uses bounded JSON frames and random-challenge mutual HMAC authentication on loopback only. HMAC does not isolate a jailbreak root user. The paired app/extension share a build-generated key. The extension has no device, OS-build or UUID filter; interface signatures, code plans, live objects and slot checks must pass at runtime before card operations become available.
 
-## 1.3 的运行时解析
+## Runtime discovery in 1.3
 
-扩展使用 Frida Gum 17.25.0 devkit 内的 Capstone 5 解码 ARM64；私有符号只在目标驱动模块中通过 CoreSymbolication 枚举。普通运行不需要 Frida server、JavaScript 或电脑。Hook 仍使用 Substrate。
+The extension uses Capstone 5 from the Frida Gum 17.25.0 devkit for ARM64 decoding. CoreSymbolication enumerates private symbols only in the target driver module. Normal operation does not need Frida server, JavaScript or a computer. Hooks still use Substrate.
 
-解析分两步：先分析镜像得到 18 项代码位置/字段，再从只读的活对象识别 2 项字段。每项必须有唯一候选，报告保留来源与失败状态。没有旧数值偏移回退。卡片页的管理菜单提供「固件解析」，可以刷新和复制报告；读取报告本身不发送 APDU。
+Discovery has two stages: image analysis supplies code locations/fields, followed by read-only live-object inspection for two additional fields. Each result must be unique, with sources and failure states recorded. There is no fallback to old numerical offsets. The card management menu offers Firmware Resolver with refresh/copy; reading the report sends no APDU. Version 1.3.22 also discovers the container representation/stride and handles native command continuations.
 
-- Mach-O：运行时读取加载地址、代码段、UUID 和 LC_FUNCTION_STARTS；只接受目标镜像内的函数起点。
-- 符号与调用关系：定位驱动打开/命令/关闭，通过 block 指令和调用图识别编码、响应、QMI 回调及其捕获字段。
-- C++ RTTI 与虚表：查找 SubscriberSimController 和 APDU 闭包，再沿虚方法、worker、闭包构造关系确定 sender、worker、完成回调。
-- 指令语义：从 worker 访问推导 SimInfo vector、逻辑槽字段和状态函数；就绪判断直接使用导出的 isSimReady，不固定状态枚举。
-- 活对象：捕获导出的 Registry getter，有限遍历服务 map 的链，通过已识别虚表确认唯一控制器；无需旧 map/node/typeinfo/虚表槽偏移。
-- 驱动指针必须精确匹配具体驱动 RTTI，排除名称中也包含驱动类的 shared_ptr 控制块。硬件槽字段在多个 SimInfo 节点中交叉验证，逻辑槽和硬件槽分别使用。
+- Mach-O: read runtime load addresses, code ranges, UUIDs and LC_FUNCTION_STARTS; accept function starts only in the owning target image.
+- Symbols/call relationships: find driver open/command/close, then identify encoder, response and QMI callbacks and captured fields through block instructions and call graphs.
+- C++ RTTI/vtables: identify SubscriberSimController and APDU closures; follow virtual-method, worker and closure-construction relationships to recover sender, worker and completion.
+- Instruction semantics: derive the SimInfo container, logical-slot field and state getter from worker accesses. Readiness uses the exported isSimReady predicate rather than a fixed state enum.
+- Live objects: capture exported Registry getters, follow bounded service-map chains and match the discovered vtable to one controller. Old map/node/typeinfo/virtual-slot offsets are unnecessary.
+- The driver pointer must match the concrete driver's RTTI exactly, excluding shared_ptr control blocks that contain the driver class name. Hardware-slot fields are cross-checked across SimInfo nodes; logical and hardware slots remain distinct.
 
-## 当前解析结果样本
+## Example discovery results
 
-下表是 iPhone14,5 / iOS 17.2.1 的研究样本，不是配置或跨版本常量；地址相对于各自镜像基址。完整实现位于 tweak/ResolverCore.cpp、tweak/RuntimeResolver.mm 和 tweak/Apdu.mm。
+This table describes the iPhone14,5 / iOS 17.2.1 research sample, not configuration or cross-version constants. Addresses are relative to their own image base. Implementation: tweak/ResolverCore.cpp, tweak/RuntimeResolver.mm and tweak/Apdu.mm.
 
-| 项目 | 本机构建的解析结果 |
+| Result | Locally discovered value |
 |---|---|
 | CommCenter UUID | 10bdb2fd04e33fcea0a188d064801df2 |
-| 驱动 UUID | 571c9998ee7c3d9e946f779aee761332 |
-| sender / worker | CommCenter +0x7e4568 / +0x7ff250 |
-| 控制器虚表 / 完成回调 | CommCenter +0x175fb78 / +0x803a74 |
-| SimInfo 状态函数 | CommCenter +0x11c3c10 |
-| SimInfo vector / 逻辑槽 | 控制器 +0xa8 / SimInfo +0x24 |
-| 驱动打开 / 命令 / 关闭 | 驱动 +0x168858 / +0x1693e0 / +0x16a7a4 |
-| 编码 / QMI / 响应回调 | 驱动 +0x169bb8 / +0x16a214 / +0x16a43c |
-| 编码通道 / 响应硬件槽 / 响应通道 | block +0x30 / +0x30 / +0x34 |
-| QMI 错误字段 | 结果 +0x4 |
-| 控制器驱动指针 / SimInfo 硬件槽 | 活对象 +0x68 / +0x20 |
-| 就绪判断 / Registry | 导出的 subscriber::isSimReady 和 Registry::getServiceMap |
+| Driver UUID | 571c9998ee7c3d9e946f779aee761332 |
+| Sender / worker | CommCenter +0x7e4568 / +0x7ff250 |
+| Controller vtable / completion | CommCenter +0x175fb78 / +0x803a74 |
+| SimInfo state getter | CommCenter +0x11c3c10 |
+| SimInfo vector / logical slot | Controller +0xa8 / SimInfo +0x24 |
+| Driver open / command / close | Driver +0x168858 / +0x1693e0 / +0x16a7a4 |
+| Encoder / QMI / response | Driver +0x169bb8 / +0x16a214 / +0x16a43c |
+| Encoder channel / response hardware slot / response channel | Block +0x30 / +0x30 / +0x34 |
+| QMI error | Result +0x4 |
+| Controller driver pointer / SimInfo hardware slot | Live objects +0x68 / +0x20 |
+| Readiness / Registry | Exported subscriber::isSimReady and Registry::getServiceMap |
 
-## 支持新版本的流程
+## Supporting another version
 
-1. 安装正常构建并保存运行时报告，记录设备、基带、架构及 UUID 供诊断。未知 UUID 走同一套发现流程，不需要修改批准表。
-2. 若代码位置能唯一解析，重点核对私有函数签名、参数顺序、C++ 按值/引用传递、block 捕获语义、回调生命周期和 PAC。当前编译实测 shared_ptr 为 16 字节、std::function 为 32 字节；早期 Frida 脚本分配的 48 字节不是该类型 sizeof。对象大小相同也不能证明 ABI 一样。
-3. 不再存在 UUID 批准表。解析失败时，根据报告更新对应语义规则或适配器，并添加镜像回放和反例；不要回退旧数值偏移或强制标记计划完成。
-4. 核对注入环境、arm64/arm64e、Substrate 及 rootless/roothide 打包。先只读核对活对象、逻辑/硬件槽映射、Get EID、列表、61xx、关闭通道及断连恢复。
-5. 再使用已授权且可重新下载的测试 profile，验证下载、启用、停用、恢复和删除，并逐项比较基线。1.3.15 起动态枚举已分配逻辑卡槽，并提供自动/手动选卡；逻辑编号不代表所有设备的实体卡槽位置。
-6. 单独测试网络权限、GSMA TLS、相机/相册、前后台与重启。App 的标准 LPA/UI 通常可复用；内部 eUICC、MEP、不同基带和 USB 读卡器需要另做通路适配。
+1. Install a normal build and save its runtime report, recording device, baseband, architecture and UUIDs for diagnosis. Unknown UUIDs follow the same discovery process without an approval-table change.
+2. If code resolves uniquely, verify private signatures, argument order, C++ value/reference passing, block captures, callback lifetimes and PAC. The compiled shared_ptr measures 16 bytes and std::function 32 bytes; the 48 bytes allocated by early Frida scripts were not sizeof that type. Equal sizes do not prove ABI equivalence.
+3. There is no UUID approval table. On failure, update the relevant semantic rule/adapter and add image replay and negative cases. Do not restore old numerical offsets or force a complete plan.
+4. Check injection, arm64/arm64e, Substrate and rootless/roothide packaging. Start with read-only live objects, logical/hardware mappings, Get EID, profile listing, 61xx, channel close and disconnect recovery.
+5. Then use an authorized, redownloadable test profile for download, enable, disable, restore and deletion, comparing the baseline at each step. Since 1.3.15, assigned logical slots are dynamically enumerated with automatic/manual selection; a logical ID does not universally identify a physical position.
+6. Separately test network permissions, GSMA TLS, camera/photos, foreground/background and reboot. The standard LPA/UI can usually be reused; internal eUICCs, MEP, other basebands and USB readers need separate transport adapters.
 
-是否启用通道由运行时证据决定，不取决于固件身份。符号缺失、RTTI 被裁剪、签名或指令改变、对象候选不唯一都会拒绝操作并保留诊断。活对象算法接受 1–16 个 SimInfo 节点，要求唯一的 1–3 硬件槽字段；单节点仍可能存在无法区分的候选。不同映射需要扩展规则并实测，检查通过也不是对私有 ABI 的形式化证明。
+Runtime evidence determines channel eligibility. Missing symbols, stripped RTTI, changed signatures/instructions or ambiguous objects reject operations with diagnostics. Live discovery accepts 1–16 SimInfo nodes and requires one distinct hardware-slot field in the range 1–3; one node may leave indistinguishable candidates. Other mappings need new rules and device testing. Passing checks is not a formal proof of the private ABI.
 
-## 资源和验证约束
+## Resource and validation limits
 
-CommCenter 的内存限额很低。早期全进程 Gum 符号枚举触发内存高水位终止，已回退并移除；最终使用模块级 CoreSymbolication，显式注册 Capstone ARM64 和 libc 分配函数，避免 Gum/GLib 全局缓存。报告中的 maxMeasuredFootprintBytes 是若干阶段的采样最大值，不是连续测得的进程峰值。解析失败显式返回错误，不依赖 C++ 异常展开。
+CommCenter has a low memory budget. Early process-wide Gum symbol enumeration triggered high-watermark termination and was removed. Production uses module-scoped CoreSymbolication, explicit Capstone ARM64 registration and libc allocation callbacks, avoiding global Gum/GLib caches. maxMeasuredFootprintBytes is the largest phase sample, not a continuously measured peak. Discovery errors are returned explicitly without relying on C++ exception unwinding.
 
-新解析器需要重新完成写卡/切换回归；本轮只读验证不能替代先前 1.1.4 的完整写入测试，也不能证明其他系统兼容。
+The new resolver still needs full write/switch regression. Read-only checks do not replace the historical 1.1.4 write tests or establish support for other systems.
 
-## 1.2.0 日志与自定义请求
+## Logging and custom requests introduced in 1.2.0
 
-- 英文 UTC 日志记录 App 实际发出的 APDU、接收字节及 SW；HTTP 记录 URL、方法、应用层请求/响应头、状态码和完整 body 的分块十六进制。它不是抓取全机流量，也不包含 TLS 加密记录或 App 无法看到的基带内部信令。
-- TX 表示 App 的发送尝试，RX 才是回读；超时不能证明卡端未执行命令。
-- 日志保留在内存，约 4 MiB 后淘汰旧记录并显示计数。导出创建 `.log` 文件；原始 body 可能含 MatchingID、证书、加密包和卡片标识，不能再假设日志没有激活凭据。
-- 原始 APDU：每行一条，最多 64 条；支持短 APDU，输入基本通道 CLA，按实际通道绑定。不自动重试或处理 61xx/6Cxx；默认遇到非 9000 状态停止，关闭开关后可自行编排 GET RESPONSE。
-- ES10 DER：一个完整 TLV，使用现有库按 MSS 分块并收集 61xx；不提供任意 HTTP 请求功能。限制为最多 256 块、4096 次传输和 1 MiB 响应；此模式保留库现有的通道编码，暂限通道 0–3，避免在未验证的高通道号上发错 CLA。
-- 信令控制台仍限定已核对固件、实体卡和标准 ISD-R AID。命令可修改或删除卡片，因此每次提交前确认；没有自动执行示例或自动重发写命令。
-- 中英文 UI：`viewer/Resources/{en,zh-Hans}.lproj`；默认跟随系统，也可在卡片设置中选择语言。日志和原始响应标签不随 UI 翻译。
+- English UTC logs record APDUs attempted by the app, received bytes and SW. HTTP logs contain URL, method, application request/response headers, status and complete bodies as chunked hex. They do not capture all device traffic, TLS records or baseband-internal signaling unavailable to the app.
+- TX means an app send attempt; RX records a response. A timeout does not prove the card did not execute a command.
+- Logs stay in memory, evicting old records after approximately 4 MiB with a counter. Export creates a `.log` file. Bodies may contain MatchingID, certificates, encrypted packages and card identifiers; do not assume logs exclude activation credentials.
+- Raw APDU: one per line, up to 64; short APDUs with a basic-channel CLA mapped to the actual channel. No automatic retry or 61xx/6Cxx handling. Non-9000 stops by default; disabling that setting permits explicit GET RESPONSE sequences.
+- ES10 DER: one complete TLV, split by MSS through the existing library and collecting 61xx. Arbitrary HTTP requests are not provided. Limits are 256 blocks, 4096 transmissions and a 1 MiB response. Existing library channel encoding currently limits this mode to channels 0–3 to avoid unverified high-channel CLA values.
+- The signal console remains scoped to runtime-validated firmware, removable cards and the standard ISD-R AID. Commands can change/delete card contents and require confirmation before submission. Examples are not executed automatically and writes are not automatically replayed.
+- Bilingual UI resources: `viewer/Resources/{en,zh-Hans}.lproj`. Language follows the system by default and can be selected in card settings. Logs and raw-response labels remain English.
 
-离线检查入口：`python3 tests/check_offline.py`。它验证编解码、语言资源和 libeuicc 模拟卡端流程；无法验证新的 UIKit 页面、真实私有 ABI、卡片状态变化或运营商业务。
+Offline checks: `python3 tests/check_offline.py`. These cover codecs, language resources and libeuicc mock-card flows, excluding new UIKit views, actual private ABIs, card state changes and operator services.

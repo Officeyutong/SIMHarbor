@@ -33,7 +33,7 @@ python3 tests/check_offline.py
 bash build.sh
 ```
 
-默认构建 roothide deb，输出在 `packages/`。通过 `SIMHARBOR_SCHEME=rootful`、`rootless` 或 `roothide` 选择方案。同一套固定版本 roothide/Theos 按 [roothide Developer README](https://github.com/roothide/Developer) 构建三种方案；架构、路径和校验命令见[安装包方案](docs/PACKAGING.md)。打包方案不能代替运行时兼容性检查。
+默认构建 roothide deb，输出在 `packages/`。通过 `SIMHARBOR_SCHEME=rootful`、`rootless` 或 `roothide` 选择方案。同一套固定版本 roothide/Theos 按 [roothide Developer README](https://github.com/roothide/Developer) 构建三种方案；架构、路径和校验命令见[安装包方案](docs/PACKAGING.zh-CN.md)。打包方案不能代替运行时兼容性检查。
 
 Linux 依赖包含 `libplist-utils` 及其运行库。编译前会实际调用构建工具链 PATH 选中的 `plistutil`，转换 XML 与 OpenStep `.strings` 文件，并检查二进制格式和中文值。即使复用工具链缓存，缺少运行库也会在编译前直接报出。
 
@@ -63,7 +63,7 @@ Release 要求三种构建全部成功，包含三个 `SIMHarbor_VERSION_方案.
 
 已安装程序的 `--notification-check` 使用模拟卡片/网络方法验证自动通知默认值、关闭设置、成对切换事件、提交顺序及失败保留，不发送真实卡片或网络请求，并恢复测试时临时修改的设置。
 
-本地检查覆盖双语文档/隐私、编解码、异常输入、真实 libeuicc 模拟卡端流程、ASan/UBSan，以及真实 Git 历史下的 CI 发布策略。只读设备测试与完整写入测试的适用范围见 [验证记录](docs/VALIDATION.md)。CI 不连接手机，不下载或切换真实 profile。
+本地检查覆盖双语文档/隐私、编解码、异常输入、真实 libeuicc 模拟卡端流程、ASan/UBSan，以及真实 Git 历史下的 CI 发布策略。只读设备测试与完整写入测试的适用范围见 [验证记录](docs/VALIDATION.zh-CN.md)。CI 不连接手机，不下载或切换真实 profile。
 
 可选的镜像回放测试：`python3 tests/check_resolver.py /path/to/resolver-fixture`，需要自己从授权设备获取的私有镜像；这些数据不纳入仓库或 CI。
 
@@ -79,6 +79,8 @@ Linux Remote-SSH／Dev Container 环境中，安装与项目 Clang 22 配套的 
 
 ## 文档
 
+[中英文文档总目录](docs/README.zh-CN.md)。
+
 App 仅内置双语使用说明，技术文章保留在仓库中：
 
 - [使用说明](docs/manual/zh-Hans/guide.md)
@@ -88,7 +90,7 @@ App 仅内置双语使用说明，技术文章保留在仓库中：
 - [共享 JSON 结构体与校验](docs/JSON_MODELS.zh-CN.md)
 - [App 与 CommCenter 通信协议](docs/IPC.zh-CN.md)
 - [移植指南](docs/manual/zh-Hans/porting.md)
-- [验证范围](docs/VALIDATION.md)
+- [验证范围](docs/VALIDATION.zh-CN.md)
 
 ## 源码与资料
 

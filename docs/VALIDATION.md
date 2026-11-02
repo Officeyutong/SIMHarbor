@@ -1,28 +1,30 @@
-# 验证范围
+# Validation scope
 
-## 已有设备验证
+**English** | [简体中文](VALIDATION.zh-CN.md)
 
-当前 ABI 仅核对 iPhone 13 / iOS 17.2.1（21C66）、roothide、可移除 eSTK eUICC。
+## Existing device validation
 
-- 历史原生 LPA 已完成授权测试 profile 的下载、重命名、启用、停用、恢复与删除。
-- 后续运行时解析器核对了代码位置、对象字段与只读卡片操作；该版本完整写入/切换回归尚未重做。
-- 二维码合成图片和元数据/图片选择回调交接通过，含忙碌时保留结果、取消和重复帧。
-- 物理相机连续对焦、点击对焦/曝光坐标与场景恢复属性检查通过。不同距离和光照下的实体二维码清晰度仍需人工复核。
-- 关于页的中英文版本/构建号、公开开发者链接、文档与许可入口通过界面检查。
+The current ABI checks cover iPhone 13 / iOS 17.2.1 (21C66), roothide and a removable eSTK eUICC.
 
-上述结论不证明其他设备、固件、运营商、长时间后台恢复或中断安装的兼容性。真实激活信息和卡片基线不写入此文档。
+- Historical native LPA tests completed authorized profile download, rename, enable, disable, restore and deletion.
+- Later runtime resolver tests checked code locations, object fields and read-only card operations. Full write/switch regression has not been repeated for that resolver version.
+- Synthetic QR images and metadata/image-picker callback handoff passed, including retaining results while busy, cancellation and duplicate frames.
+- Physical-camera continuous focus, tap-to-focus/exposure coordinates and scene restoration properties passed checks. QR readability across distances and lighting still needs manual verification.
+- The bilingual About page passed UI checks for version/build, public developer links, documentation and licenses.
 
-## 公开仓库检查
+These results do not establish compatibility for other devices, firmware, operators, long background recovery or interrupted installations. Real activation information and personal card baselines are excluded from this document.
 
-`python3 tests/check_offline.py` 检查语言资源、文档、隐私、C 编解码和 libeuicc 模拟卡端流程。`python3 tests/test_ci_policy.py` 检查版本发布条件。`python3 scripts/check_public_tree.py` 检查 Git 文件集。
+## Public repository checks
 
-GitHub CI 只做离线测试和构建，不连接研究设备。每次构建都会重新生成非持久配对材料。依赖来源与固定版本在仓库中的 manifest 内记录。
+`python3 tests/check_offline.py` checks language resources, documentation, privacy, C codecs and libeuicc mock-card flows. `python3 tests/test_ci_policy.py` checks release conditions. `python3 scripts/check_public_tree.py` audits the Git file set.
 
-## 1.3.22 自适应解析验证
+GitHub CI runs offline checks and builds without connecting to research devices. Each build regenerates nonpersistent pairing material. Repository manifests record dependency sources and pinned versions.
 
-- 六份授权固件样本（16.5.1、17.2.1、17.6、18.0、18.6、26.0.1）的静态解析均通过 ASan/UBSan 重放；不执行目标 ARM64 指令。
-- 合成遍历覆盖内联／间接存储、步长／指针位移变化、越界字段、寄存器覆盖、缺少边界分支／槽位匹配／回边／就绪调用；类型化视图覆盖容器变更及读取失败。实际镜像反例验证缺失／错误签名／非入口回调的拒绝。
-- 在 iPhone 13 / iOS 17.2.1 的 roothide 环境安装新包，解析及 ABI／Hook／活对象检查通过；枚举两个槽位，读取 eUICC 的 EID 和配置列表，普通 SIM 的 ISD-R 不可用返回正常错误。
-- 18.x／26 的原生 continuation 路径尚未经过对应真机验证，且目前需要 SIM 就绪；不支持该路径下的未就绪卡片。此次不做下载、删除、线路切换或真实运营商通知测试。
+## Adaptive resolver validation in 1.3.22
 
-这些结果不能扩展为 iOS 14–26.0.1 所有设备和构建均已兼容。继续通过运行时证据决定是否启用，不增加版本／设备白名单。
+- Six authorized firmware samples (16.5.1, 17.2.1, 17.6, 18.0, 18.6 and 26.0.1) passed static resolver replay under ASan/UBSan. No target ARM64 instructions execute.
+- Synthetic traversal tests cover inline/indirect storage, changed stride/pointee displacement, out-of-bounds fields, overwritten registers and missing bounds branches, slot matches, backedges or readiness calls. Typed views cover container changes and failed reads. Actual-image negative cases reject missing signatures, incompatible signatures and callback addresses inside a function.
+- The new roothide package was installed on iPhone 13 / iOS 17.2.1. Discovery, ABI, hooks and live-object checks passed. Two slots were enumerated, the eUICC EID/profile list was read and the ordinary SIM returned the expected ISD-R error.
+- The native-continuation path on 18.x/26 has no corresponding device validation and currently requires a ready SIM; inactive-card access on that path is unsupported. This validation does not test download, deletion, line switching or real operator notifications.
+
+These results do not establish compatibility for every iOS 14–26.0.1 device/build. Runtime evidence still determines eligibility without an OS/device allowlist.
