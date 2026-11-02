@@ -28,3 +28,7 @@ GitHub CI runs offline checks and builds without connecting to research devices.
 - The native-continuation path on 18.x/26 has no corresponding device validation and currently requires a ready SIM; inactive-card access on that path is unsupported. This validation does not test download, deletion, line switching or real operator notifications.
 
 These results do not establish compatibility for every iOS 14–26.0.1 device/build. Runtime evidence still determines eligibility without an OS/device allowlist.
+
+## 17.2.1 device regression after the completion-register change
+
+The roothide build from source commit `520049d` was installed on the iPhone 13 / iOS 17.2.1 baseline. Cold and warm discovery, ABI checks, hooks, live-object layout, both slot probes, repeated EID/profile reads and IPC reconnection passed. Channel reopening succeeded, the EID/profile list matched the pre-install baseline, and discovered module-relative locations/field offsets matched the previous 1.3.22 report. No profile download, deletion, line switch or operator notification was tested. The installed package keeps version 1.3.22/build 1322; source commit and package checksum identify this regression build. This validates the tested 17.2.1 transport path, not untested devices or full write flows.
