@@ -1,5 +1,21 @@
 # Release notes / 版本记录
 
+## 1.3.23 — build 1323
+
+### English
+
+- Add an experimental system-interface bridge for eSIM capability queries and installation requests from injected apps. SIMHarbor confirms the destination card and server, then uses its existing LPA and CommCenter transport. The installed profile remains disabled.
+- Return the native result to the requesting app when it becomes active, retry card discovery after service connection, and keep an uncertain installation result distinct from a definite failure. Updates require restarting already-running calling apps to load the new pairing key.
+- Compare an optional server OID with the authentication certificate's registered ID; support OID-only activation QR codes. Requests containing ICCID or non-null plan properties remain unsupported. See [native installation bridge](NATIVE_INSTALL.md) for restrictions and security details.
+- On an iPhone 13 with iOS 17.2.1 and roothide, a real carrier-app request installed a profile and returned success after foregrounding; an independent app process also passed a synthetic query and cancellation. OID matching was tested with generated and operator certificates, but not with an OID-bearing real download. Other devices, iOS versions and applications require further testing.
+
+### 简体中文
+
+- 新增实验性的系统接口桥接，使已注入的应用能够查询 eSIM 能力并发起安装请求。SIMHarbor 确认目标卡片与服务器后，使用现有 LPA 和 CommCenter 通信写卡；新配置保持停用。
+- 调用方重新活跃时交付原生结果；卡片服务连接后重试只读发现，并区分安装结果未知与明确失败。升级后须重启已运行的调用方，才能加载新的配对密钥。
+- 将可选服务器 OID 与认证证书的 registered ID 比较，支持只有 OID、没有 Matching ID 的激活二维码。含 ICCID 或非空套餐属性的请求仍不支持；限制及安全细节见[原生安装桥接](NATIVE_INSTALL.zh-CN.md)。
+- 在 iOS 17.2.1、roothide 的 iPhone 13 上，真实运营商应用请求完成写卡，切回后收到成功结果；另一个应用进程通过虚构查询和取消测试。OID 校验已用生成证书和运营商证书测试，尚未验证真实含 OID 的下载。其他设备、iOS 版本及应用仍需测试。
+
 ## 1.3.22 — build 1322
 
 ### English

@@ -4,6 +4,7 @@ export THEOS_PACKAGE_SCHEME ?= roothide
 include $(THEOS)/makefiles/common.mk
 
 SUBPROJECTS += tweak
+SUBPROJECTS += native
 SUBPROJECTS += viewer
 
 include $(THEOS)/makefiles/aggregate.mk

@@ -11,6 +11,7 @@
 | Patchfinder | [Discovery rules](PATCHFINDER.md) | [定位规则](PATCHFINDER.zh-CN.md) |
 | CommCenter 通信 | [Transport](COMMCENTER_TRANSPORT.md) | [通信技术](COMMCENTER_TRANSPORT.zh-CN.md) |
 | App／扩展 IPC | [Protocol](IPC.md) | [通信协议](IPC.zh-CN.md) |
+| 原生安装桥接 | [Experimental bridge](NATIVE_INSTALL.md) | [实验性原生安装桥接](NATIVE_INSTALL.zh-CN.md) |
 | 共享 JSON 模型 | [Models](JSON_MODELS.md) | [共享模型](JSON_MODELS.zh-CN.md) |
 | 多卡槽 | [Routing](MULTI_SLOT.md) | [多卡槽](MULTI_SLOT.zh-CN.md) |
 | OpenEUICC 功能对照 | [Features](OPENEUICC.md) | [功能对照](OPENEUICC.zh-CN.md) |

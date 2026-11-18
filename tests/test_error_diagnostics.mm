@@ -14,6 +14,20 @@ extern "C" int SHErrorDiagnosticsCheck(void) {
             return 6;
         SHLPA *unbound = [[SHLPA alloc] initWithSlot:1];
         NSError *unboundError = nil;
+        if ([unbound download:@"LPA:1$example.invalid$fixture$1..3"
+                 confirmation:nil
+                        error:&unboundError] ||
+            unboundError.code != 32)
+            return 9;
+        for (NSString *code in @[
+                 @"LPA:1$example.invalid$fixture$1.3.6.1.4.1.31746",
+                 @"LPA:1$example.invalid$$1.3.6.1.4.1.31746"
+             ]) {
+            NSError *validError = nil;
+            if ([unbound download:code confirmation:nil error:&validError] || validError.code != 30)
+                return 10;
+        }
+        unboundError = nil;
         if ([unbound download:@"LPA:1$example.invalid$fixture"
                  confirmation:nil
                         error:&unboundError] ||
@@ -69,6 +83,18 @@ extern "C" int SHErrorDiagnosticsCheck(void) {
                 if (![SHErrorReport(wrapped) containsString:@"NSURLErrorDomain"] ||
                     ![SHErrorReport(wrapped) containsString:@"-1001"])
                     return 5;
+                NSMutableDictionary *uncertainInfo = [unspecified.userInfo mutableCopy];
+                uncertainInfo[@"SHInstallationMayHaveCompleted"] = @YES;
+                uncertainInfo[@"SHFriendlyMessage"] =
+                    @"The installation result is unknown. Refresh the card list before trying again.";
+                NSError *uncertain = [NSError errorWithDomain:unspecified.domain
+                                                         code:unspecified.code
+                                                     userInfo:uncertainInfo];
+                expected = [language isEqual:@"en"] ? @"Refresh the card list" : @"刷新卡片列表";
+                if (![SHErrorSummary(uncertain) containsString:expected] ||
+                    ![SHErrorReport(uncertain) containsString:@"installationMayHaveCompleted"] ||
+                    ![SHErrorReport(uncertain) containsString:@"fixture-request"])
+                    return 8;
             }
         } @finally {
             if (original)

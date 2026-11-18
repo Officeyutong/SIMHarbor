@@ -103,7 +103,7 @@ static NSDictionary *SHUnderlyingReport(NSError *error, NSUInteger depth) {
 NSString *SHErrorReport(NSError *error) {
     if (!error)
         return SHL(@"No errors recorded in this session.");
-    NSDictionary *report = @{
+    NSMutableDictionary *report = [@{
         @"recordedAt":error.userInfo[@"SHRecordedAt"] ?: @"",
         @"stage":error.userInfo[@"SHDiagnosticStage"] ?: @"",
         @"domain":error.domain,
@@ -111,7 +111,9 @@ NSString *SHErrorReport(NSError *error) {
         @"message":error.userInfo[@"SHErrorEnglish"] ?: error.localizedDescription ?: @"",
         @"diagnostics":error.userInfo[@"SHDiagnostics"] ?: @{},
         @"underlyingError":SHUnderlyingReport(error.userInfo[NSUnderlyingErrorKey], 0)
-    };
+    } mutableCopy];
+    if ([error.userInfo[@"SHInstallationMayHaveCompleted"] boolValue])
+        report[@"installationMayHaveCompleted"] = @YES;
     NSData *json = SHJSONData(report, YES);
     return json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]
                 : error.description;

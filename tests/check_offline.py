@@ -151,4 +151,5 @@ if __name__ == "__main__":
     localization()
     subprocess.run(["python3", str(ROOT / "scripts/build_docs.py"), "--check"], check=True)
     subprocess.run(["python3", str(ROOT / "tests/check_docs_privacy.py")], check=True)
+    subprocess.run(["python3", str(ROOT / "tests/check_server_oid.py")], check=True)
     native()

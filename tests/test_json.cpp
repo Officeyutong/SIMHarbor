@@ -1,4 +1,5 @@
 #include "../shared/Framing.hpp"
+#include "../shared/Provisioning.hpp"
 #include <cassert>
 #include <thread>
 #include <unistd.h>
@@ -15,6 +16,28 @@ static bool request(const std::string &text) {
     return parse(text.data(), text.size(), j) && read(j, out);
 }
 static void schemas() {
+    ProvisioningRequest native;
+    assert(
+        read(parseJSON(R"({"address":"smdp.example.invalid","eid":"fixture-eid","oid":"1.2.3"})"),
+             native));
+    assert(!native.matchingID && native.eid && native.oid);
+    JSON encoded = native;
+    ProvisioningRequest recovered;
+    assert(read(encoded, recovered) && !recovered.matchingID && recovered.eid == native.eid);
+    assert(!read(parseJSON(R"({"address":"example.invalid","matchingID":7})"), recovered));
+    assert(!read(parseJSON(R"({"address":"example.invalid","matchingID":""})"), recovered));
+    assert(!read(parseJSON(R"({"address":"https://example.invalid"})"), recovered));
+    assert(!read(parseJSON(R"({"address":"example.invalid","matchingID":"abc\u0000def"})"),
+                 recovered));
+    assert(!read(parseJSON(R"({"address":"example.invalid\u0000.bad"})"), recovered));
+    assert(read(parseJSON(R"({"address":"example.invalid","matchingID":null})"), recovered));
+    assert(!recovered.matchingID);
+    JSON complete = {{"address", "smdp.example.invalid"}, {"matchingID", "fixture"},
+                     {"confirmationCode", "sample"},      {"eid", "fixture-eid"},
+                     {"iccid", "fixture-iccid"},          {"oid", "1.2.3"}};
+    assert(read(complete, recovered));
+    assert(JSON(recovered) == complete);
+
     auto id = [](Request r) {
         r.id = "fixture-request";
         return r;

@@ -15,6 +15,7 @@ extern "C" {
 #import "Bridge.h"
 #import "../shared/Wire.h"
 #import "../shared/JSONFoundation.h"
+#include "../shared/ServerOID.hpp"
 #import <Security/Security.h>
 #import <dlfcn.h>
 
@@ -519,7 +520,8 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
     if ([s.lowercaseString hasPrefix:@"lpa:"])
         s = [s substringFromIndex:4];
     NSArray *t = [s componentsSeparatedByString:@"$"];
-    if (t.count < 3 || ![t[0] isEqual:@"1"] || ![t[1] length] || ![t[2] length] ||
+    if (t.count < 3 || ![t[0] isEqual:@"1"] || ![t[1] length] ||
+        (![t[2] length] && (t.count < 4 || ![t[3] length])) ||
         [t[1] rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"/:@?# "]]
                 .location != NSNotFound) {
         if (e)
@@ -546,6 +548,44 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
                        }];
         return NO;
     }
+    return [self downloadFromServer:t[1]
+                         matchingID:[t[2] length] ? t[2] : nil
+                       confirmation:confirmation
+                                oid:t.count > 3 && [t[3] length] ? t[3] : nil
+                          targetEID:nil
+                              error:e];
+}
+
+- (BOOL)downloadFromServer:(NSString *)host
+                matchingID:(NSString *)token
+              confirmation:(NSString *)confirmation
+                       oid:(NSString *)oid
+                 targetEID:(NSString *)targetEID
+                     error:(NSError **)e {
+    if (targetEID && (![targetEID isKindOfClass:NSString.class] || !targetEID.length ||
+                      ![targetEID isEqual:self.expectedEID])) {
+        if (e)
+            *e = SHError(
+                31,
+                @"The card in this slot has changed or is unavailable. Refresh and select the card again before continuing.");
+        return NO;
+    }
+    if (![host isKindOfClass:NSString.class] || !host.length ||
+        [host
+            rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"/:@?# $"]]
+                .location != NSNotFound ||
+        (token && (![token isKindOfClass:NSString.class] || !token.length))) {
+        if (e)
+            *e = SHError(3, @"Invalid activation code. Use LPA:1$server$activation-token.");
+        return NO;
+    }
+    std::vector<uint8_t> encodedOID;
+    if (oid && (![oid isKindOfClass:NSString.class] ||
+                !shoid::expectedOID(SHStdString(oid), encodedOID))) {
+        if (e)
+            *e = SHError(32, @"The server OID is invalid.");
+        return NO;
+    }
     if (self.downloadIMEI.length &&
         ([self.downloadIMEI
              rangeOfCharacterFromSet:NSCharacterSet.decimalDigitCharacterSet.invertedSet]
@@ -566,9 +606,10 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
     if (![self begin:&c error:e])
         return NO;
     BOOL installed = NO;
-    NSString *host = t[1], *token = t[2];
+    BOOL installationStarted = NO;
     c.http.server_address = host.UTF8String;
     struct es10b_load_bound_profile_package_result result = {0};
+    result.errorReason = ES10B_ERROR_REASON_UNDEFINED;
     NSString *failed = nil;
     @try {
         [self stage:@"Verifying the card…"];
@@ -580,6 +621,22 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
         if (es9p_initiate_authentication(&c)) {
             failed = @"Server authentication initialization failed";
             return NO;
+        }
+        if (oid) {
+            auto *params = c.http._internal.authenticate_server_param;
+            NSString *certificate =
+                params && params->b64_serverCertificate
+                    ? [NSString stringWithUTF8String:params->b64_serverCertificate]
+                    : nil;
+            NSData *der = certificate
+                              ? [[NSData alloc] initWithBase64EncodedString:certificate options:0]
+                              : nil;
+            if (!der ||
+                !shoid::matchesCertificate({static_cast<const uint8_t *>(der.bytes), der.length},
+                                           SHStdString(oid))) {
+                failed = @"The server certificate does not match the requested OID";
+                return NO;
+            }
         }
         [self stage:@"Verifying the operator certificate…"];
         if (es10b_authenticate_server(&c, token.UTF8String,
@@ -604,6 +661,7 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
             return NO;
         }
         [self stage:@"Installing the profile. Keep the app in the foreground…"];
+        installationStarted = YES;
         if (es10b_load_bound_profile_package(&c, &result)) {
             self.installationDiagnostic = @{
                 @"errorReason" : @(result.errorReason),
@@ -619,6 +677,18 @@ static const struct euicc_http_interface http = {httpTransmit, NULL};
     } @finally {
         if (!installed) {
             [self failure:failed ?: @"Download failed" ctx:&c error:e];
+            // Once profile loading starts, a lost card response does not prove
+            // that the card rejected the installation. Preserve that ambiguity
+            // for native callers, which must not treat it as safe to retry.
+            if (installationStarted && result.errorReason == ES10B_ERROR_REASON_UNDEFINED && e &&
+                *e) {
+                NSMutableDictionary *details = [(*e).userInfo mutableCopy];
+                details[@"SHInstallationMayHaveCompleted"] = @YES;
+                details[@"SHFriendlyMessage"] =
+                    @"The installation result is unknown. Refresh the card list before trying again.";
+                details[NSLocalizedDescriptionKey] = SHL(details[@"SHFriendlyMessage"]);
+                *e = [NSError errorWithDomain:(*e).domain code:(*e).code userInfo:details];
+            }
             if (c.http._internal.transaction_id_bin)
                 es10b_cancel_session(&c, ES10B_CANCEL_SESSION_REASON_ENDUSERREJECTION);
             if (c.http._internal.transaction_id_http)

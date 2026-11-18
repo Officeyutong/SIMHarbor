@@ -25,7 +25,8 @@ static NSString *SHActivationFromObservations(NSArray<VNBarcodeObservation *> *o
     if (![value.lowercaseString hasPrefix:@"lpa:1$"])
         return nil;
     NSArray *parts = [value componentsSeparatedByString:@"$"];
-    if (parts.count < 3 || ![parts[1] length] || ![parts[2] length] ||
+    if (parts.count < 3 || ![parts[1] length] ||
+        (![parts[2] length] && (parts.count < 4 || ![parts[3] length])) ||
         [parts[1] rangeOfCharacterFromSet:[NSCharacterSet
                                               characterSetWithCharactersInString:@"/:@?# \t\r\n"]]
                 .location != NSNotFound)

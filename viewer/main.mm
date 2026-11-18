@@ -1,3 +1,5 @@
+#import "PlanServer.hpp"
+#import "ActivationPrompt.h"
 extern "C" int SHJSONCheck(void);
 extern "C" int SHErrorDiagnosticsCheck(void);
 extern "C" int SHNotificationCheck(void);
@@ -1074,44 +1076,168 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
     }
     NSString *suffix =
         [expectedEID substringFromIndex:expectedEID.length > 6 ? expectedEID.length - 6 : 0];
-    UIAlertController *a = [UIAlertController
+    UIAlertController *a = SHActivationPrompt(
+        self.lpa.slot, suffix, code, nil, nil,
+        ^(NSString *activation, NSString *confirmation, NSString *imei) {
+            if (![expectedEID isEqual:self.lpa.expectedEID]) {
+                [self
+                    message:SHL(@"Card slots")
+                     detail:
+                         SHL(@"The selected card changed while entering the activation code. Select the card and scan or enter the code again.")];
+                return;
+            }
+            self.lpa.downloadIMEI = imei;
+            [self downloadCode:activation confirmation:confirmation];
+        });
+    [self presentViewController:a animated:YES completion:nil];
+}
+- (void)receiveNativePlan:(shjson::ProvisioningRequest)request
+                 deadline:(NSTimeInterval)deadline
+            readyDeadline:(NSTimeInterval)readyDeadline
+         refreshAttempted:(BOOL)refreshAttempted
+                    reply:(void (^)(NSString *))reply {
+    if (request.iccid || NSProcessInfo.processInfo.systemUptime >= deadline) {
+        reply(@"failure");
+        return;
+    }
+    if (!self.busy && !self.tabBarController.presentedViewController &&
+        UIApplication.sharedApplication.applicationState == UIApplicationStateActive &&
+        self.tabBarController.selectedIndex != 0)
+        self.tabBarController.selectedIndex = 0;
+    BOOL ready = !self.busy && self.card && self.viewIfLoaded.window &&
+                 !self.presentedViewController &&
+                 self.navigationController.topViewController == self &&
+                 self.tabBarController.selectedIndex == 0 &&
+                 UIApplication.sharedApplication.applicationState == UIApplicationStateActive &&
+                 self.lpa.expectedEID.length;
+    if (!ready) {
+        if (NSProcessInfo.processInfo.systemUptime >= readyDeadline) {
+            reply(@"failure");
+            return;
+        }
+        // The service may authenticate after the initial startup refresh has
+        // already failed. Retry one read-only refresh once it is connected.
+        if (!refreshAttempted && !self.busy && !self.card && self.viewIfLoaded.window &&
+            !self.presentedViewController &&
+            UIApplication.sharedApplication.applicationState == UIApplicationStateActive &&
+            [[SHBridge shared] connected]) {
+            refreshAttempted = YES;
+            [self refreshCard];
+        }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 2),
+                       dispatch_get_main_queue(), ^{
+                           [self receiveNativePlan:request
+                                          deadline:deadline
+                                     readyDeadline:readyDeadline
+                                  refreshAttempted:refreshAttempted
+                                             reply:reply];
+                       });
+        return;
+    }
+    if (![NSUserDefaults.standardUserDefaults boolForKey:@"SHNetworkConsent"]) {
+        UIAlertController *consent = [UIAlertController
+            alertControllerWithTitle:SHL(@"Allow SIMHarbor network access?")
+                             message:
+                                 SHL(@"Downloading eSIMs requires your operator's server. Allow this app to use Wi-Fi and cellular data.")
+                      preferredStyle:UIAlertControllerStyleAlert];
+        [consent addAction:[UIAlertAction actionWithTitle:SHL(@"Not now")
+                                                    style:UIAlertActionStyleCancel
+                                                  handler:^(UIAlertAction *action) {
+                                                      reply(@"cancel");
+                                                  }]];
+        [consent addAction:[UIAlertAction
+                               actionWithTitle:SHL(@"Allow and download")
+                                         style:UIAlertActionStyleDefault
+                                       handler:^(UIAlertAction *action) {
+                                           NSError *error = nil;
+                                           if (![self.lpa allowOwnNetworking:&error]) {
+                                               reply(@"failure");
+                                               [self message:SHL(@"Unable to update network access")
+                                                      detail:error.localizedDescription];
+                                               return;
+                                           }
+                                           // Wait until the consent alert has dismissed before
+                                           // presenting the separate card and server confirmation.
+                                           dispatch_after(
+                                               dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 2),
+                                               dispatch_get_main_queue(), ^{
+                                                   [self receiveNativePlan:request
+                                                                  deadline:deadline
+                                                             readyDeadline:deadline
+                                                          refreshAttempted:refreshAttempted
+                                                                     reply:reply];
+                                               });
+                                       }]];
+        [self presentViewController:consent animated:YES completion:nil];
+        return;
+    }
+    NSString *targetEID = self.lpa.expectedEID;
+    NSString *requestedEID = request.eid ? SHString(*request.eid) : nil;
+    if (requestedEID && ![requestedEID isEqual:targetEID]) {
+        reply(@"failure");
+        return;
+    }
+    NSString *host = SHString(request.address);
+    NSString *matching = request.matchingID ? SHString(*request.matchingID) : nil;
+    NSString *confirmation = request.confirmationCode ? SHString(*request.confirmationCode) : nil;
+    NSString *oid = request.oid ? SHString(*request.oid) : nil;
+    NSString *suffix =
+        [targetEID substringFromIndex:targetEID.length > 6 ? targetEID.length - 6 : 0];
+    UIAlertController *alert = [UIAlertController
         alertControllerWithTitle:SHL(@"Add eSIM")
                          message:
                              [NSString
                                  stringWithFormat:
-                                     SHL(@"Download to slot %ld (EID ending %@). The profile remains disabled."),
-                                     (long)self.lpa.slot, suffix]
+                                     SHL(@"Server: %@\nDownload to slot %ld (EID ending %@). The profile remains disabled."),
+                                     host, (long)self.lpa.slot, suffix]
                   preferredStyle:UIAlertControllerStyleAlert];
-    [a addTextFieldWithConfigurationHandler:^(UITextField *t) {
-        t.placeholder = SHL(@"LPA:1$server$activation-token");
-        t.text = code;
-        t.autocapitalizationType = UITextAutocapitalizationTypeNone;
-        t.autocorrectionType = UITextAutocorrectionTypeNo;
-        t.clearButtonMode = UITextFieldViewModeWhileEditing;
-    }];
-    [a addTextFieldWithConfigurationHandler:^(UITextField *t) {
-        t.placeholder = SHL(@"Confirmation code (if required)");
-        t.secureTextEntry = YES;
-    }];
-    [a addTextFieldWithConfigurationHandler:^(UITextField *t) {
-        t.placeholder = SHL(@"IMEI (optional, 15 digits)");
-        t.keyboardType = UIKeyboardTypeNumberPad;
-    }];
-    [a addAction:[UIAlertAction actionWithTitle:SHL(@"Cancel")
-                                          style:UIAlertActionStyleCancel
-                                        handler:nil]];
-    [a addAction:[UIAlertAction actionWithTitle:SHL(@"Download and install")
-                                          style:UIAlertActionStyleDefault
-                                        handler:^(UIAlertAction *x) {
-                                            NSString *activation = a.textFields[0].text ?: @"",
-                                                     *confirmation = a.textFields[1].text ?: @"";
-                                            self.lpa.downloadIMEI = a.textFields[2].text;
-                                            a.textFields[0].text = @"";
-                                            a.textFields[1].text = @"";
-                                            [self downloadCode:activation
-                                                  confirmation:confirmation];
-                                        }]];
-    [self presentViewController:a animated:YES completion:nil];
+    [alert addAction:[UIAlertAction actionWithTitle:SHL(@"Cancel")
+                                              style:UIAlertActionStyleCancel
+                                            handler:^(UIAlertAction *a) {
+                                                reply(@"cancel");
+                                            }]];
+    [alert
+        addAction:[UIAlertAction
+                      actionWithTitle:SHL(@"Download and install")
+                                style:UIAlertActionStyleDefault
+                              handler:^(UIAlertAction *a) {
+                                  if (self.busy ||
+                                      NSProcessInfo.processInfo.systemUptime >= deadline ||
+                                      ![targetEID isEqual:self.lpa.expectedEID]) {
+                                      reply(@"failure");
+                                      return;
+                                  }
+                                  SHLPA *engine = self.lpa;
+                                  // A native request has no IMEI field. Do not reuse one left by an
+                                  // earlier manual entry that failed validation before cleanup.
+                                  engine.downloadIMEI = nil;
+                                  [self setWorking:YES];
+                                  [self.queue addOperationWithBlock:^{
+                                      NSError *error = nil;
+                                      BOOL ok = [engine downloadFromServer:host
+                                                                matchingID:matching
+                                                              confirmation:confirmation
+                                                                       oid:oid
+                                                                 targetEID:targetEID
+                                                                     error:&error];
+                                      reply(ok ? @"success"
+                                               : ([error.userInfo[@"SHInstallationMayHaveCompleted"]
+                                                      boolValue]
+                                                      ? @"unknown"
+                                                      : @"failure"));
+                                      dispatch_async(dispatch_get_main_queue(), ^{
+                                          [self setWorking:NO];
+                                          if (error)
+                                              [SHErrorDetailsVC showError:error from:self];
+                                          else if (ok)
+                                              [self message:SHL(@"eSIM installed")
+                                                     detail:engine.lastWarning
+                                                                ?: SHL(@"Operation completed.")];
+                                          [self refreshCard];
+                                      });
+                                  }];
+                              }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 - (void)downloadCode:(NSString *)activation confirmation:(NSString *)confirmation {
     if (!self.card || !self.lpa.expectedEID.length) {
@@ -1274,6 +1400,25 @@ static void Record(NSString *s) { [[SHTraceLog shared] event:SHEnglish(s)]; }
                                                  name:@"SHLanguageChanged"
                                                object:nil];
     [self buildUI];
+    __weak AppDelegate *weakSelf = self;
+    SHStartPlanServer(
+        ^(shjson::ProvisioningRequest request, NSTimeInterval deadline, void (^reply)(NSString *)) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                UITabBarController *tabs = (UITabBarController *)weakSelf.window.rootViewController;
+                UINavigationController *nav =
+                    (UINavigationController *)tabs.viewControllers.firstObject;
+                RootVC *root = (RootVC *)nav.viewControllers.firstObject;
+                if (![root isKindOfClass:RootVC.class]) {
+                    reply(@"failure");
+                    return;
+                }
+                [root receiveNativePlan:request
+                               deadline:deadline
+                          readyDeadline:MIN(deadline, NSProcessInfo.processInfo.systemUptime + 120)
+                       refreshAttempted:NO
+                                  reply:reply];
+            });
+        });
     return YES;
 }
 @end
@@ -1290,9 +1435,14 @@ static int SHQRCheck(void) {
                 return 1;
             }
         }
+        NSString *oidOnly = @"LPA:1$example.invalid$$1.3.6.1.4.1.31746";
+        if (![[SHQRDecoder activationCodeFromPayload:oidOnly] isEqual:oidOnly]) {
+            fprintf(stderr, "OID-only QR normalization failed\n");
+            return 1;
+        }
         for (NSString *payload in @[
                  @"https://example.invalid", @"LPA:1$", @"LPA:1$$token", @"LPA:1$example.invalid$",
-                 @"LPA:1$https://example.invalid$token"
+                 @"LPA:1$example.invalid$$", @"LPA:1$https://example.invalid$token"
              ]) {
             if ([SHQRDecoder activationCodeFromPayload:payload]) {
                 fprintf(stderr, "Invalid QR accepted\n");

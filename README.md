@@ -6,6 +6,8 @@ SIMHarbor (芯舟) is a native app and CommCenter extension for managing removab
 
 Features include runtime slot discovery, automatic or manual card selection with EID identity checks, profile listing, downloading, enabling/disabling, renaming, deletion, notification management, camera and image QR scanning, continuous and tap-to-focus, English and Chinese interfaces, an offline user guide, a raw APDU/DER console, and an Error details tab that opens automatically for failed profile operations. Duplicate installs and other recognized failures have actionable messages; the details retain protocol diagnostics and support copying and clearing. Normal use requires neither a computer nor Frida server.
 
+An experimental [native installation bridge](docs/NATIVE_INSTALL.md) lets injected apps using supported Core Telephony interfaces request installation through SIMHarbor. The bridge has field and application compatibility limitations described in that document.
+
 Compatibility is inferred at runtime by the Patchfinder, without a device-model, iOS-build or image-UUID allowlist. A complete, unique code plan and matching interface signatures enable transport hooks; live-object and slot validation must also pass before card commands. UUIDs are diagnostic metadata only. iPhone 13 / iOS 17.2.1 (21C66), roothide remains the device-tested baseline, not a prerequisite. Other firmware still needs validation. The app currently uses iOS 14+ UI APIs and an ARM64 transport adapter.
 
 ## Screenshots
@@ -61,7 +63,7 @@ GitHub Actions workflow: `.github/workflows/build.yml`.
 
 Releases require all three variants to succeed. Assets include `SIMHarbor_VERSION_rootful.deb`, `SIMHarbor_VERSION_rootless.deb`, `SIMHarbor_VERSION_roothide.deb`, a combined `SHA256SUMS`, and per-scheme build metadata.
 
-To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.22 (build 1322). See the [release notes](docs/RELEASES.md).
+To release a new version, update `VERSION` and increment `BUILD_NUMBER` as needed. The package `control` file and app `Info.plist` are generated from templates in `packaging/`; they do not need manual synchronization. The current source version is 1.3.23 (build 1323). See the [release notes](docs/RELEASES.md).
 
 ## Tests and validation scope
 

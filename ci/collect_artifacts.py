@@ -54,6 +54,10 @@ def main():
         assert list(folder.rglob("ESTKLog.app")) == [app], "Incorrect app install prefix"
         tweak = folder / prefix / "Library/MobileSubstrate/DynamicLibraries/estkrecon.dylib"
         assert tweak.is_file()
+        native = folder / prefix / "Library/MobileSubstrate/DynamicLibraries/shnativeplan.dylib"
+        native_filter = native.with_suffix(".plist")
+        assert native.is_file() and native_filter.is_file(), "Native installation bridge missing"
+        assert "UIApplication" in plistlib.loads(native_filter.read_bytes())["Filter"]["Classes"]
         substrate = {
             "rootful": b"/Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate",
             "rootless": b"@rpath/CydiaSubstrate.framework/CydiaSubstrate",
@@ -64,6 +68,9 @@ def main():
         slices = macho_slices(tweak)
         assert (0x0100000C, 0) in slices, "Tweak arm64 slice missing"
         assert (0x0100000C, 0x80000002) in slices, "Versioned arm64e ABI slice missing"
+        native_slices = macho_slices(native)
+        assert (0x0100000C, 0) in native_slices, "Native bridge arm64 slice missing"
+        assert (0x0100000C, 0x80000002) in native_slices, "Native bridge arm64e slice missing"
         postinst = (folder / "DEBIAN/postinst").read_text()
         app_path = "/" + (prefix + "/" if prefix else "") + "Applications/ESTKLog.app"
         assert "uicache -p " + app_path in postinst and "@INSTALL_PREFIX@" not in postinst

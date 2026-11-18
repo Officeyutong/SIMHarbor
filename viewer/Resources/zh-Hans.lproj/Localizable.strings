@@ -298,6 +298,11 @@
 "More than one eUICC was found. Select the slot you want to manage." = "发现多张 eUICC，请选择要管理的卡槽。";
 "The selected card changed while entering the activation code. Select the card and scan or enter the code again." = "输入激活码期间所选卡片发生变化，请重新选择卡片，再扫码或输入激活码。";
 "Download to slot %ld (EID ending %@). The profile remains disabled." = "下载到卡槽 %ld（EID 尾号 %@），新配置保持停用。";
+"Server: %@\nDownload to slot %ld (EID ending %@). The profile remains disabled." = "服务器：%@\n下载到卡槽 %ld（EID 尾号 %@），新配置保持停用。";
+"The installation result is unknown. Refresh the card list before trying again." = "安装结果未知。请刷新卡片列表后，再决定是否重试。";
+"Activation codes with a server OID are not supported yet." = "暂不支持含服务器 OID 的激活码。";
+"The server OID is invalid." = "服务器 OID 无效。";
+"The server certificate does not match the requested OID" = "服务器证书与请求的 OID 不匹配";
 
 "More response data is available (61xx). Raw APDU mode stopped before GET RESPONSE. Fill the Get EID example to use ES10 DER and collect the complete response." = "卡片还有后续响应数据（61xx），并非命令失败。原始 APDU 模式在 GET RESPONSE 前停止。请点击“填入 Get EID 示例”，使用 ES10 DER 模式收集完整响应。";
 

@@ -21,6 +21,12 @@
 - (BOOL)checkNetwork:(NSError **)error;
 - (NSDictionary *)readCard:(NSError **)error;
 - (BOOL)download:(NSString *)code confirmation:(NSString *)confirmation error:(NSError **)error;
+- (BOOL)downloadFromServer:(NSString *)server
+                matchingID:(NSString *)matchingID
+              confirmation:(NSString *)confirmation
+                       oid:(NSString *)oid
+                 targetEID:(NSString *)targetEID
+                     error:(NSError **)error;
 - (BOOL)deleteProfile:(NSString *)iccid error:(NSError **)error;
 - (BOOL)setProfile:(NSString *)iccid enabled:(BOOL)enabled error:(NSError **)error;
 - (BOOL)renameProfile:(NSString *)iccid name:(NSString *)name error:(NSError **)error;

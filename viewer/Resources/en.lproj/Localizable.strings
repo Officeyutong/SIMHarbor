@@ -298,6 +298,11 @@
 "More than one eUICC was found. Select the slot you want to manage." = "More than one eUICC was found. Select the slot you want to manage.";
 "The selected card changed while entering the activation code. Select the card and scan or enter the code again." = "The selected card changed while entering the activation code. Select the card and scan or enter the code again.";
 "Download to slot %ld (EID ending %@). The profile remains disabled." = "Download to slot %ld (EID ending %@). The profile remains disabled.";
+"Server: %@\nDownload to slot %ld (EID ending %@). The profile remains disabled." = "Server: %@\nDownload to slot %ld (EID ending %@). The profile remains disabled.";
+"The installation result is unknown. Refresh the card list before trying again." = "The installation result is unknown. Refresh the card list before trying again.";
+"Activation codes with a server OID are not supported yet." = "Activation codes with a server OID are not supported yet.";
+"The server OID is invalid." = "The server OID is invalid.";
+"The server certificate does not match the requested OID" = "The server certificate does not match the requested OID";
 
 "More response data is available (61xx). Raw APDU mode stopped before GET RESPONSE. Fill the Get EID example to use ES10 DER and collect the complete response." = "More response data is available (61xx). Raw APDU mode stopped before GET RESPONSE. Fill the Get EID example to use ES10 DER and collect the complete response.";
 
